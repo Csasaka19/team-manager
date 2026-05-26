@@ -96,6 +96,33 @@
   --color-destructive-hover: var(--destructive-hover);
 }
 
+/* Light theme — opt-in via .light on :root. The dark palette above remains
+   the default. Only the tokens that need to flip are restated here; semantic
+   colors (priority, status, accent, destructive) stay the same across themes
+   so brand colors and meaning don't drift between modes. */
+:root.light {
+  --bg-base: #fafbfc;
+  --bg-surface: #ffffff;
+  --bg-elevated: #f4f5f8;
+  --bg-input: #ffffff;
+  --border-subtle: #e5e7eb;
+  --border-default: #d1d5db;
+
+  --text-primary: #111827;
+  --text-secondary: #4b5563;
+  --text-muted: #9ca3af;
+  /* --text-inverse stays #0F1117 — it's "text on a colored (accent) button",
+     which is dark on blue in both modes, keeping the primary CTA identical. */
+
+  --accent-focus: rgba(59, 130, 246, 0.3);
+
+  --shadow-card-hover: 0 2px 8px rgba(15, 17, 23, 0.06);
+  --shadow-dropdown: 0 4px 16px rgba(15, 17, 23, 0.1);
+  --shadow-drag: 0 8px 24px rgba(15, 17, 23, 0.15);
+
+  color-scheme: light;
+}
+
 @layer base {
   html,
   body,

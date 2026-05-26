@@ -54,8 +54,10 @@ required to demo. Drop in a real API later and the UI doesn't need to change.
   reorder all live in `localStorage` and survive a reload.
 - **Mobile-first.** Works at 375px viewport without horizontal scroll. 44px
   touch targets in the top bar.
-- **Industrial-clean dark theme**, all colors via CSS variables — no
-  hardcoded palette values in components.
+- **Industrial-clean light & dark themes** with a toggle in the top bar.
+  All colors flow through CSS variables — no hardcoded palette values in
+  components. Defaults follow `prefers-color-scheme`; explicit choice is
+  remembered and applied pre-paint so there's no flash on reload.
 
 ---
 
@@ -86,7 +88,7 @@ Settings panel.
 | Routing | **React Router v7** | One `<Routes>` tree in `App.tsx` |
 | State | **React Context** (Auth + Data) | No Redux/Zustand/Jotai — Context is enough at this size |
 | Drag & drop | `@dnd-kit/core` + `@dnd-kit/sortable` | Tree-shakeable, accessible |
-| Toasts | `sonner` | Dark-themed, bottom-right, auto-dismiss |
+| Toasts | `sonner` | Follows the active theme, bottom-right, auto-dismiss |
 | Date math | Custom utils in `src/lib/date-utils.ts` | Demo "now" is anchored — see [below](#mock-data--the-demo-now-anchor) |
 
 The bundle is **~520 KB JS / ~148 KB gzipped** at the moment — under the
@@ -293,7 +295,21 @@ Mobile-first throughout. Tested layout assumptions:
 - **1024 px+ (desktop):** sidebar at full 240 px; Dashboard summary becomes
   4-up; Projects grid becomes 3-up; Team grid becomes 2-up.
 
-No theme toggle — the app is dark-only by design (see the design brief).
+**Light & dark themes.** A `Sun` / `Moon` button in the top bar toggles between
+them. The icon shown is the theme you'd switch _to_, which is the convention
+most users intuit. Implementation notes:
+
+- Initial theme resolves in order: `localStorage` → `prefers-color-scheme` →
+  dark fallback. The chosen palette is applied via a synchronous `<script>`
+  in `<head>` before React mounts, so there's no flash of the wrong theme
+  on reload.
+- Only surface/border/text tokens flip between modes — accent blue, priority
+  colors (red/amber/blue/gray), status pills, and destructive red stay
+  constant so brand meaning doesn't drift between modes.
+- `color-scheme: light` / `dark` is set on each root so native form controls
+  (date picker, scrollbars) follow the chosen theme.
+- The toggle uses `role="switch"` + `aria-checked` and a dynamic `aria-label`
+  so screen-reader users hear the destination state on focus.
 
 ---
 

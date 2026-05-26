@@ -5,6 +5,21 @@
     <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Team Manager</title>
+    <script>
+      // Apply the user's saved theme before paint so the page doesn't flash.
+      // Mirrors getInitialTheme() in src/lib/theme.ts — keep them in sync.
+      (function () {
+        try {
+          var stored = localStorage.getItem('team-manager.theme');
+          var theme = stored === 'light' || stored === 'dark'
+            ? stored
+            : (window.matchMedia('(prefers-color-scheme: light)').matches ? 'light' : 'dark');
+          document.documentElement.classList.add(theme);
+        } catch (e) {
+          document.documentElement.classList.add('dark');
+        }
+      })();
+    </script>
   </head>
   <body>
     <div id="root"></div>

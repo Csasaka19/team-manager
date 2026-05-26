@@ -1,6 +1,7 @@
 import { Menu, Search } from 'lucide-react'
 import { NotificationBell } from '@/components/notifications/NotificationBell'
 import { useData } from '@/data/store'
+import { ThemeToggle } from './ThemeToggle'
 import { UserMenu } from './UserMenu'
 
 interface TopBarProps {
@@ -43,6 +44,7 @@ export function TopBar({ onMobileMenuClick, onSearchClick }: TopBarProps) {
               ⌘K
             </kbd>
           </button>
+          <ThemeToggle />
           <NotificationBell />
           <UserMenu />
         </div>

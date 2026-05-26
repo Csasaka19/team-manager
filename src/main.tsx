@@ -4,8 +4,26 @@ import { BrowserRouter } from 'react-router-dom'
 import { Toaster } from 'sonner'
 import { AuthProvider } from './data/auth'
 import { DataProvider } from './data/store'
+import { useTheme } from './lib/theme'
 import './index.css'
 import App from './App.tsx'
+
+function ThemedToaster() {
+  const { theme } = useTheme()
+  return (
+    <Toaster
+      theme={theme}
+      position="bottom-right"
+      toastOptions={{
+        style: {
+          background: 'var(--bg-elevated)',
+          border: '1px solid var(--border-default)',
+          color: 'var(--text-primary)',
+        },
+      }}
+    />
+  )
+}
 
 createRoot(document.getElementById('root')!).render(
   <StrictMode>
@@ -13,17 +31,7 @@ createRoot(document.getElementById('root')!).render(
       <AuthProvider>
         <DataProvider>
           <App />
-          <Toaster
-            theme="dark"
-            position="bottom-right"
-            toastOptions={{
-              style: {
-                background: 'var(--bg-elevated)',
-                border: '1px solid var(--border-default)',
-                color: 'var(--text-primary)',
-              },
-            }}
-          />
+          <ThemedToaster />
         </DataProvider>
       </AuthProvider>
     </BrowserRouter>
