@@ -29,6 +29,7 @@ required to demo. Drop in a real API later and the UI doesn't need to change.
 - [Accessibility](#accessibility)
 - [Keyboard shortcuts](#keyboard-shortcuts)
 - [Quick Create](#quick-create)
+- [Discord integration](#discord-integration)
 - [Known limitations](#known-limitations)
 - [Contributing](#contributing)
 - [License](#license)
@@ -56,6 +57,10 @@ required to demo. Drop in a real API later and the UI doesn't need to change.
   `+ New Task` button, or a mobile-only floating `+` FAB. Smart project
   defaulting, session-remembered last project, **Create** vs **Create & Open**
   submit modes. See [Quick Create](#quick-create).
+- **Discord integration** — relay task events (created / status changed /
+  assigned / completed / commented) to a Discord channel via webhook, with
+  rich embeds and per-event toggles in Settings. See
+  [Discord integration](#discord-integration).
 - **In-app notifications** with a bell + badge in the top bar, auto-emitted on
   assignment / comment / @mention / status change, with per-user preferences
   that actually gate emission.
@@ -173,7 +178,8 @@ src/
 │   ├── projects/               # ProjectCard, ProjectFormModal
 │   ├── team/                   # TeamMemberCard, InviteMemberModal
 │   ├── settings/               # WorkspaceSection, TagsSection,
-│   │                           #   NotificationsSection, AccountSection
+│   │                           #   NotificationsSection, AccountSection,
+│   │                           #   DiscordSection
 │   ├── command-palette/        # CommandPalette (Cmd+K search + actions)
 │   └── notifications/          # NotificationBell
 │
@@ -182,6 +188,9 @@ src/
 │   ├── mock-data.ts            # Seeded fixtures anchored to 2026-05-22
 │   ├── store.ts                # DataProvider — single source of truth
 │   └── auth.ts                 # AuthProvider — login, logout, role checks
+│
+├── services/
+│   └── discord.ts              # Discord webhook integration (embeds + send)
 │
 └── lib/
     ├── utils.ts                # cn() — tailwind-merge + clsx
@@ -462,6 +471,76 @@ The new card appears immediately in the appropriate board column (and
 in the assignee's My Tasks list, if applicable) — no manual refresh,
 since the in-memory store updates synchronously after the artificial
 800 ms mutation delay.
+
+---
+
+## Discord integration
+
+Settings → **Discord Integration** (PM only) lets you paste a Discord
+webhook URL and pick which task events get relayed. The team sees task
+updates land in the channel without anyone opening the app.
+
+### Configure
+
+1. In Discord, **Server Settings → Integrations → Webhooks → New
+   Webhook**, pick the channel, copy the URL.
+2. In Team Manager, paste it into the **Webhook URL** field. The input
+   masks the URL by default (it contains a secret token) — click the
+   eye icon to reveal.
+3. Optionally add a **Channel name** label so future-you remembers
+   where this posts (Discord ignores it).
+4. Toggle the events you want relayed.
+5. Click **Test webhook** to fire a sample embed — a green
+   `Webhook connected` card should appear in the channel within a
+   second or two.
+6. **Save** to persist. Settings live in `localStorage` under
+   `team-manager.discord-settings`.
+
+### Events and embed shapes
+
+| Event | Color | Fields |
+|---|---|---|
+| 📋 Task created | Blue | Project · Priority · Assignee |
+| 🔄 Status updated | Purple | From · To · By |
+| 👤 Task assigned | Amber | Assigned to · Priority · Due |
+| ✅ Task completed | Green | Project · Completed by |
+| 💬 New comment | Blue | By · Comment (first 200 chars) |
+| ⏰ Overdue (daily summary) | — | _Not wired in this MVP — needs a backend scheduler._ |
+
+All embeds include a `timestamp` so Discord renders the relative time
+under the card.
+
+### Where the code lives
+
+- **`src/services/discord.ts`** — types (`DiscordSettings`,
+  `DiscordEvent`, `DiscordEmbed`), per-event embed builders, and a
+  fire-and-forget `sendDiscordWebhook(url, body)` that swallows errors
+  and `console.warn`s them. Callers never block on Discord.
+- **Store wiring** — `DataProvider` keeps the latest state slices
+  (`projects`, `teamMembers`, `discordSettings`, …) in refs so a stable
+  `emitDiscord(event, builder)` callback can read them without
+  recreating itself. `createTask`, `updateTask`, and `addComment` call
+  `emitDiscord` after their primary state mutations, and emits run
+  exactly once even under React StrictMode's double-invoking development
+  setters.
+- **Settings UI** — `src/components/settings/DiscordSection.tsx`.
+
+### Production: proxy through your backend
+
+Discord webhook URLs are essentially API keys. Shipping them to the
+browser means anyone with devtools can copy the URL and spam the channel.
+For a real deployment:
+
+1. Stand up an endpoint like `POST /api/discord-relay` on your
+   backend that reads the webhook from server config (env var, secret
+   manager) and forwards the body to Discord.
+2. Change one line in `sendDiscordWebhook` — the `fetch(url, …)` call —
+   to hit your proxy with the body shape unchanged. The embed builders
+   and emit hooks need no other changes.
+
+Browser-direct posts also have practical limits (CORS works in
+practice for Discord, but you don't get rate-limit headers back, and
+you can't add per-channel HMAC signing). A proxy fixes both.
 
 ---
 

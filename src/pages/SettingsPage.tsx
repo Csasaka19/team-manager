@@ -1,4 +1,5 @@
 import { AccountSection } from '@/components/settings/AccountSection'
+import { DiscordSection } from '@/components/settings/DiscordSection'
 import { NotificationsSection } from '@/components/settings/NotificationsSection'
 import { TagsSection } from '@/components/settings/TagsSection'
 import { WorkspaceSection } from '@/components/settings/WorkspaceSection'
@@ -20,6 +21,7 @@ export default function SettingsPage() {
 
       {isPM && <WorkspaceSection />}
       {isPM && <TagsSection />}
+      {isPM && <DiscordSection />}
       <NotificationsSection />
       <AccountSection />
     </div>

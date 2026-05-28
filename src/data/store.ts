@@ -3,10 +3,24 @@ import {
   createElement,
   useCallback,
   useContext,
+  useEffect,
   useMemo,
+  useRef,
   useState,
   type ReactNode,
 } from 'react'
+import {
+  DEFAULT_DISCORD_SETTINGS,
+  buildCommentPostedEmbed,
+  buildTaskAssignedEmbed,
+  buildTaskCompletedEmbed,
+  buildTaskCreatedEmbed,
+  buildTaskStatusChangedEmbed,
+  buildTestEmbed,
+  sendDiscordWebhook,
+  type DiscordEvent,
+  type DiscordSettings,
+} from '@/services/discord'
 import { useAuth } from './auth'
 import {
   mockActivities,
@@ -38,6 +52,7 @@ const WORKSPACE_NAME_KEY = 'team-manager.workspace-name'
 const STATUS_LABEL_OVERRIDES_KEY = 'team-manager.status-label-overrides'
 const COLUMN_ORDER_KEY = 'team-manager.column-order'
 const NOTIF_PREFS_PREFIX = 'team-manager.notif-prefs.'
+const DISCORD_SETTINGS_KEY = 'team-manager.discord-settings'
 
 const DEFAULT_WORKSPACE_NAME = 'Team Manager'
 const DEFAULT_COLUMN_ORDER: TaskStatus[] = ['todo', 'in_progress', 'in_review', 'done']
@@ -162,6 +177,12 @@ export interface DataStore {
   setStatusLabel: (status: TaskStatus, label: string) => void
   setColumnOrder: (order: TaskStatus[]) => void
 
+  // Discord integration (PM-managed)
+  discordSettings: DiscordSettings
+  setDiscordSettings: (next: DiscordSettings) => void
+  /** Sends a sample embed to the configured webhook and resolves with the result. */
+  testDiscordWebhook: () => Promise<{ ok: boolean; error?: string }>
+
   // Task CRUD
   createTask: (input: CreateTaskInput) => Promise<Task>
   updateTask: (id: string, patch: UpdateTaskInput) => Promise<Task>
@@ -274,6 +295,27 @@ export function DataProvider({ children }: { children: ReactNode }) {
     saveJSON(COLUMN_ORDER_KEY, order)
   }, [])
 
+  // Discord settings — persisted to localStorage. The webhook URL is sensitive
+  // (contains a secret token); in production you'd keep it server-side.
+  const [discordSettings, setDiscordSettingsState] = useState<DiscordSettings>(
+    () => {
+      const saved = loadJSON<Partial<DiscordSettings>>(DISCORD_SETTINGS_KEY, {})
+      return {
+        ...DEFAULT_DISCORD_SETTINGS,
+        ...saved,
+        events: { ...DEFAULT_DISCORD_SETTINGS.events, ...(saved.events ?? {}) },
+      }
+    },
+  )
+
+  const setDiscordSettings = useCallback<DataStore['setDiscordSettings']>(
+    (next) => {
+      setDiscordSettingsState(next)
+      saveJSON(DISCORD_SETTINGS_KEY, next)
+    },
+    [],
+  )
+
   const actorId = currentUser?.id ?? 'system'
 
   /** Push a synthetic Activity entry (used both by external callers and by mutations). */
@@ -335,6 +377,70 @@ export function DataProvider({ children }: { children: ReactNode }) {
     }
   }
 
+  // ---- Discord emit ------------------------------------------------------
+  //
+  // Mutation callbacks (createTask / updateTask / addComment) are wrapped in
+  // useCallback for stable identity. To avoid forcing them to depend on every
+  // slice of state the embed builders need (projects, members, workspaceName,
+  // discordSettings…), we mirror those into refs and read from the refs at
+  // emit time. `emitDiscord` itself is therefore stable (empty deps) and
+  // doesn't churn its parent callbacks.
+  const tasksRef = useRef(tasks)
+  const projectsRef = useRef(projects)
+  const teamMembersRef = useRef(teamMembers)
+  const statusLabelsRef = useRef(statusLabels)
+  const workspaceNameRef = useRef(workspaceName)
+  const discordSettingsRef = useRef(discordSettings)
+
+  useEffect(() => {
+    tasksRef.current = tasks
+  }, [tasks])
+  useEffect(() => {
+    projectsRef.current = projects
+  }, [projects])
+  useEffect(() => {
+    teamMembersRef.current = teamMembers
+  }, [teamMembers])
+  useEffect(() => {
+    statusLabelsRef.current = statusLabels
+  }, [statusLabels])
+  useEffect(() => {
+    workspaceNameRef.current = workspaceName
+  }, [workspaceName])
+  useEffect(() => {
+    discordSettingsRef.current = discordSettings
+  }, [discordSettings])
+
+  const emitDiscord = useCallback(
+    (
+      event: DiscordEvent,
+      builder: () => import('@/services/discord').DiscordEmbed,
+    ) => {
+      const settings = discordSettingsRef.current
+      if (!settings.webhookUrl) return
+      if (!settings.events[event]) return
+      const embed = builder()
+      void sendDiscordWebhook(settings.webhookUrl, { embeds: [embed] })
+    },
+    [],
+  )
+
+  const testDiscordWebhook = useCallback<DataStore['testDiscordWebhook']>(
+    async () => {
+      const settings = discordSettingsRef.current
+      if (!settings.webhookUrl) {
+        return { ok: false, error: 'Add a webhook URL before testing.' }
+      }
+      const result = await sendDiscordWebhook(settings.webhookUrl, {
+        embeds: [buildTestEmbed(workspaceNameRef.current)],
+      })
+      return result.ok
+        ? { ok: true }
+        : { ok: false, error: result.error ?? 'Unknown error.' }
+    },
+    [],
+  )
+
   const createTask = useCallback<DataStore['createTask']>(
     (input) =>
       withMutation(() => {
@@ -368,74 +474,116 @@ export function DataProvider({ children }: { children: ReactNode }) {
             taskId: task.id,
           })
         }
+        emitDiscord('task_created', () =>
+          buildTaskCreatedEmbed({
+            task,
+            project: projectsRef.current.find((p) => p.id === task.projectId),
+            members: teamMembersRef.current,
+          }),
+        )
         return task
       }),
-    [actorId, pushActivity, pushNotification, teamMembers],
+    [actorId, pushActivity, pushNotification, teamMembers, emitDiscord],
   )
 
   const updateTask = useCallback<DataStore['updateTask']>(
     (id, patch) =>
       withMutation(() => {
-        let updated: Task | null = null
-        setTasks((prev) =>
-          prev.map((t) => {
-            if (t.id !== id) return t
-            const next: Task = {
-              ...t,
-              ...patch,
-              updatedAt: new Date().toISOString(),
-            }
-            updated = next
-
-            if (patch.status !== undefined && patch.status !== t.status) {
-              pushActivity(
-                id,
-                'status_change',
-                `moved this to ${statusLabels[patch.status]}`,
-              )
-              if (t.assigneeId && t.assigneeId !== actorId) {
-                pushNotification({
-                  recipientId: t.assigneeId,
-                  type: 'status_change',
-                  taskId: id,
-                })
-              }
-            }
-            if (
-              patch.assigneeId !== undefined &&
-              patch.assigneeId !== t.assigneeId
-            ) {
-              pushActivity(
-                id,
-                'assignment',
-                patch.assigneeId
-                  ? `assigned this to ${memberName(teamMembers, patch.assigneeId)}`
-                  : 'unassigned this task',
-              )
-              if (patch.assigneeId) {
-                pushNotification({
-                  recipientId: patch.assigneeId,
-                  type: 'assigned',
-                  taskId: id,
-                })
-              }
-            }
-            if (patch.priority !== undefined && patch.priority !== t.priority) {
-              pushActivity(
-                id,
-                'priority_change',
-                `set priority to ${patch.priority.charAt(0).toUpperCase() + patch.priority.slice(1)}`,
-              )
-            }
-            return next
-          }),
-        )
-        if (!updated) {
+        // Capture the prior task once, outside the setter, so side effects
+        // (activity / notification / Discord) run exactly once even when
+        // React StrictMode invokes the updater twice in development.
+        const prev = tasksRef.current.find((t) => t.id === id)
+        if (!prev) {
           throw new Error(`Task ${id} not found`)
         }
-        return updated
+        const next: Task = {
+          ...prev,
+          ...patch,
+          updatedAt: new Date().toISOString(),
+        }
+        setTasks((cur) => cur.map((t) => (t.id === id ? next : t)))
+
+        const actorName = memberName(teamMembersRef.current, actorId)
+
+        if (patch.status !== undefined && patch.status !== prev.status) {
+          pushActivity(
+            id,
+            'status_change',
+            `moved this to ${statusLabels[patch.status]}`,
+          )
+          if (prev.assigneeId && prev.assigneeId !== actorId) {
+            pushNotification({
+              recipientId: prev.assigneeId,
+              type: 'status_change',
+              taskId: id,
+            })
+          }
+          emitDiscord('task_status_changed', () =>
+            buildTaskStatusChangedEmbed({
+              task: next,
+              fromStatus: prev.status,
+              toStatus: patch.status!,
+              actorName,
+              statusLabels: statusLabelsRef.current,
+            }),
+          )
+          if (patch.status === 'done' && prev.status !== 'done') {
+            emitDiscord('task_completed', () =>
+              buildTaskCompletedEmbed({
+                task: next,
+                project: projectsRef.current.find(
+                  (p) => p.id === next.projectId,
+                ),
+                actorName,
+              }),
+            )
+          }
+        }
+        if (
+          patch.assigneeId !== undefined &&
+          patch.assigneeId !== prev.assigneeId
+        ) {
+          pushActivity(
+            id,
+            'assignment',
+            patch.assigneeId
+              ? `assigned this to ${memberName(teamMembers, patch.assigneeId)}`
+              : 'unassigned this task',
+          )
+          if (patch.assigneeId) {
+            pushNotification({
+              recipientId: patch.assigneeId,
+              type: 'assigned',
+              taskId: id,
+            })
+            emitDiscord('task_assigned', () =>
+              buildTaskAssignedEmbed({
+                task: next,
+                assigneeName: memberName(
+                  teamMembersRef.current,
+                  patch.assigneeId,
+                ),
+              }),
+            )
+          }
+        }
+        if (patch.priority !== undefined && patch.priority !== prev.priority) {
+          pushActivity(
+            id,
+            'priority_change',
+            `set priority to ${patch.priority.charAt(0).toUpperCase() + patch.priority.slice(1)}`,
+          )
+        }
+        return next
       }),
-    [actorId, pushActivity, pushNotification, teamMembers, statusLabels],
+    [
+      actorId,
+      pushActivity,
+      pushNotification,
+      teamMembers,
+      statusLabels,
+      emitDiscord,
+    ],
   )
 
   const deleteTask = useCallback<DataStore['deleteTask']>(
@@ -649,7 +797,7 @@ export function DataProvider({ children }: { children: ReactNode }) {
     (taskId, content, mentions = []) =>
       withMutation(() => {
         const activity = pushActivity(taskId, 'comment', content, mentions)
-        const task = tasks.find((t) => t.id === taskId)
+        const task = tasksRef.current.find((t) => t.id === taskId)
         if (task?.assigneeId && task.assigneeId !== actorId) {
           pushNotification({
             recipientId: task.assigneeId,
@@ -666,9 +814,18 @@ export function DataProvider({ children }: { children: ReactNode }) {
             })
           }
         })
+        if (task) {
+          emitDiscord('comment_posted', () =>
+            buildCommentPostedEmbed({
+              task,
+              authorName: memberName(teamMembersRef.current, actorId),
+              comment: content,
+            }),
+          )
+        }
         return activity
       }),
-    [actorId, pushActivity, pushNotification, tasks],
+    [actorId, pushActivity, pushNotification, emitDiscord],
   )
 
   const inviteTeamMember = useCallback<DataStore['inviteTeamMember']>(
@@ -800,6 +957,9 @@ export function DataProvider({ children }: { children: ReactNode }) {
       setWorkspaceName,
       setStatusLabel,
       setColumnOrder,
+      discordSettings,
+      setDiscordSettings,
+      testDiscordWebhook,
       createTask,
       updateTask,
       deleteTask,
@@ -836,6 +996,9 @@ export function DataProvider({ children }: { children: ReactNode }) {
       setWorkspaceName,
       setStatusLabel,
       setColumnOrder,
+      discordSettings,
+      setDiscordSettings,
+      testDiscordWebhook,
       createTask,
       updateTask,
       deleteTask,
