@@ -28,6 +28,7 @@ required to demo. Drop in a real API later and the UI doesn't need to change.
 - [Responsive design](#responsive-design)
 - [Accessibility](#accessibility)
 - [Keyboard shortcuts](#keyboard-shortcuts)
+- [Quick Create](#quick-create)
 - [Known limitations](#known-limitations)
 - [Contributing](#contributing)
 - [License](#license)
@@ -50,6 +51,11 @@ required to demo. Drop in a real API later and the UI doesn't need to change.
   Projects in one debounced search. Pair it with the global shortcut layer —
   `G` then `D`/`B`/`M`/`P`/`T` for navigation, `C` to create a task, `?` to see
   the full reference. See [Keyboard shortcuts](#keyboard-shortcuts).
+- **Quick Create** — a compact 5-field modal (title, project, priority,
+  assignee, due date) reachable via `C`, the command palette, the board's
+  `+ New Task` button, or a mobile-only floating `+` FAB. Smart project
+  defaulting, session-remembered last project, **Create** vs **Create & Open**
+  submit modes. See [Quick Create](#quick-create).
 - **In-app notifications** with a bell + badge in the top bar, auto-emitted on
   assignment / comment / @mention / status change, with per-user preferences
   that actually gate emission.
@@ -351,7 +357,7 @@ desktop) for users who prefer to discover shortcuts visually.
 | `Cmd` / `Ctrl` + `K` | Open the command palette |
 | `/` | Open the command palette (single-key) |
 | `?` | Show the keyboard-shortcut reference |
-| `C` | Create a new task (PM only) |
+| `C` | Open [Quick Create](#quick-create) (PM only) |
 | `G` then `D` | Go to Dashboard (PM only) |
 | `G` then `B` | Go to Board |
 | `G` then `M` | Go to My Tasks |
@@ -400,6 +406,62 @@ The palette groups results into three sections, max 5 rows per group:
 
 `↑` / `↓` move within the merged result list, `Enter` selects, `Esc`
 closes.
+
+---
+
+## Quick Create
+
+The fastest way to add a task — open the modal, name the thing, pick a
+project, hit `Enter`. No description, no subtasks, no tags. Those live on
+the task detail page; Quick Create is optimized for capture.
+
+Four entry points, all PM-only:
+
+- The `C` keyboard shortcut (disabled while typing in any input).
+- The **Create task** action in the command palette (`Cmd`/`Ctrl` + `K`).
+- The **+ New Task** button in the board header.
+- A floating **+** FAB in the bottom-right corner on viewports below
+  768 px, so touch users have a discoverable creation surface without
+  reaching for a keyboard.
+
+The form is five fields:
+
+| Field | Notes |
+|---|---|
+| Title | Required, autofocused, 200-char limit. `Enter` submits. |
+| Project | Required dropdown. Pre-selected from context — see below. |
+| Priority | 4-button radio row (Critical / High / Medium / Low). Default: Medium. |
+| Assignee | Avatar chip → click to open the team-member list. Default: unassigned. |
+| Due date | Calendar chip → presets Today / Tomorrow / Next week / No date, plus a custom date input. Default: none. |
+
+### Default-project resolution
+
+When the modal opens it tries to pre-select a sensible project, in this
+order:
+
+1. Explicit `projectId` from the caller — the board's **+ New Task**
+   button passes the active filter.
+2. URL context — `?project=<id>` on `/board`, or the parent task's
+   project if you triggered Quick Create from a task detail page.
+3. The last project you picked in this tab. Reset on full reload —
+   nothing's persisted to `localStorage`, which is deliberate (session
+   memory only, per the spec).
+4. Nothing — the dropdown shows "Select project…" and the submit
+   buttons stay disabled until you choose one.
+
+### Submit modes
+
+| Button | Behavior |
+|---|---|
+| **Create** (primary) | Creates the task, closes the modal, shows a toast with an **Open** link to jump to the new task detail. Optimal for batch entry. |
+| **Create & Open** (secondary) | Creates the task and navigates straight to `/tasks/:id`. The toast appears without an action since you're already on the task. |
+| `Enter` | Same as **Create**. |
+| `Esc` / backdrop click | Closes without creating. |
+
+The new card appears immediately in the appropriate board column (and
+in the assignee's My Tasks list, if applicable) — no manual refresh,
+since the in-memory store updates synchronously after the artificial
+800 ms mutation delay.
 
 ---
 
