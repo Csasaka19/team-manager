@@ -1,7 +1,7 @@
 import { useState } from 'react'
 import { useDroppable } from '@dnd-kit/core'
 import { ChevronDown, ChevronRight } from 'lucide-react'
-import { TaskCard } from './TaskCard'
+import { TaskCard, type SelectModifiers } from './TaskCard'
 import { cn } from '@/lib/utils'
 import type { Project, Task, TaskStatus, TeamMember } from '@/data/types'
 import { useData } from '@/data/store'
@@ -22,6 +22,12 @@ interface BoardColumnProps {
   selectedTaskId?: string | null
   /** Called when the user clicks a card — keeps keyboard selection in sync with mouse selection. */
   onSelect?: (taskId: string) => void
+  /** Set of task IDs in the multi-select set. */
+  bulkSelection?: ReadonlySet<string>
+  /** Whether multi-select mode is active (disables drag on every card). */
+  selectionActive?: boolean
+  /** Modifier-click handler — fired by TaskCard when ctrl/cmd/shift is held. */
+  onSelectToggle?: (taskId: string, mods: SelectModifiers) => void
 }
 
 export function BoardColumn({
@@ -33,6 +39,9 @@ export function BoardColumn({
   canDragTask,
   selectedTaskId,
   onSelect,
+  bulkSelection,
+  selectionActive,
+  onSelectToggle,
 }: BoardColumnProps) {
   const { statusLabels } = useData()
   const { setNodeRef, isOver } = useDroppable({
@@ -103,6 +112,9 @@ export function BoardColumn({
                 isDragging={draggingTaskId === task.id}
                 selected={selectedTaskId === task.id}
                 onSelect={onSelect}
+                bulkSelected={bulkSelection?.has(task.id) ?? false}
+                selectionActive={selectionActive}
+                onSelectToggle={onSelectToggle}
               />
             ))}
 
@@ -132,6 +144,9 @@ export function BoardColumn({
                       isDragging={draggingTaskId === task.id}
                       selected={selectedTaskId === task.id}
                       onSelect={onSelect}
+                      bulkSelected={bulkSelection?.has(task.id) ?? false}
+                      selectionActive={selectionActive}
+                      onSelectToggle={onSelectToggle}
                     />
                   ))}
               </>

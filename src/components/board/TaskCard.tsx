@@ -1,3 +1,4 @@
+import { Check } from 'lucide-react'
 import { useNavigate } from 'react-router-dom'
 import { useDraggable } from '@dnd-kit/core'
 import { CSS } from '@dnd-kit/utilities'
@@ -6,6 +7,11 @@ import { PriorityBadge } from '@/components/shared/PriorityBadge'
 import { cn } from '@/lib/utils'
 import { isOverdue, now } from '@/lib/date-utils'
 import type { Project, Task, TeamMember } from '@/data/types'
+
+export interface SelectModifiers {
+  ctrl: boolean
+  shift: boolean
+}
 
 interface TaskCardProps {
   task: Task
@@ -20,6 +26,12 @@ interface TaskCardProps {
   selected?: boolean
   /** Called on click so the page can sync mouse and keyboard selection. */
   onSelect?: (taskId: string) => void
+  /** True when this card is part of the multi-select set (renders the checkbox + blue border). */
+  bulkSelected?: boolean
+  /** True when any card on the board is multi-selected; disables drag site-wide. */
+  selectionActive?: boolean
+  /** Modifier-click handler. Called only when ctrl/cmd/shift is held. */
+  onSelectToggle?: (taskId: string, mods: SelectModifiers) => void
 }
 
 export function TaskCard({
@@ -31,11 +43,17 @@ export function TaskCard({
   overlay = false,
   selected = false,
   onSelect,
+  bulkSelected = false,
+  selectionActive = false,
+  onSelectToggle,
 }: TaskCardProps) {
   const navigate = useNavigate()
+  // Drag is disabled site-wide while multi-select is active so a stray
+  // pointer-down on a card doesn't grab it instead of toggling selection.
+  const dragDisabled = !draggable || overlay || selectionActive
   const draggableState = useDraggable({
     id: task.id,
-    disabled: !draggable || overlay,
+    disabled: dragDisabled,
     data: { taskId: task.id, fromStatus: task.status },
   })
 
@@ -46,6 +64,16 @@ export function TaskCard({
 
   const handleClick = (e: React.MouseEvent) => {
     if (overlay) return
+    // Modifier-click toggles multi-select; never navigates.
+    if (e.ctrlKey || e.metaKey || e.shiftKey) {
+      e.preventDefault()
+      e.stopPropagation()
+      onSelectToggle?.(task.id, {
+        ctrl: e.ctrlKey || e.metaKey,
+        shift: e.shiftKey,
+      })
+      return
+    }
     // Don't navigate while dragging or right after a drag pointer-up.
     if (draggableState.isDragging) {
       e.preventDefault()
@@ -59,7 +87,11 @@ export function TaskCard({
     ? {}
     : {
         transform: CSS.Translate.toString(draggableState.transform),
-        cursor: draggable ? (draggableState.isDragging ? 'grabbing' : 'grab') : 'default',
+        cursor: dragDisabled
+          ? 'pointer'
+          : draggableState.isDragging
+            ? 'grabbing'
+            : 'grab',
         opacity: isDragging ? 0.4 : 1,
       }
 
@@ -87,15 +119,25 @@ export function TaskCard({
       tabIndex={overlay ? -1 : 0}
       role={overlay ? undefined : 'button'}
       aria-label={`Open task ${task.title}`}
-      aria-selected={selected || undefined}
+      aria-selected={selected || bulkSelected || undefined}
       className={cn(
-        'group select-none rounded-lg border border-[var(--border-subtle)] bg-[var(--bg-surface)] p-3 text-left transition-[border-color,box-shadow] duration-150',
+        'group relative select-none rounded-lg border border-[var(--border-subtle)] bg-[var(--bg-surface)] p-3 text-left transition-[border-color,box-shadow] duration-150',
         'hover:border-[var(--border-default)] hover:shadow-[0_2px_8px_rgba(0,0,0,0.2)]',
         'focus-visible:border-[var(--accent-primary)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent-focus)]',
         selected && 'border-[var(--accent-primary)] ring-2 ring-[var(--accent-focus)]',
+        bulkSelected &&
+          'border-[var(--accent-primary)] ring-2 ring-[var(--accent-primary)]',
         overlay && 'rotate-2 opacity-90 shadow-[0_8px_24px_rgba(0,0,0,0.3)] cursor-grabbing',
       )}
     >
+      {bulkSelected && !overlay && (
+        <span
+          aria-hidden="true"
+          className="absolute -left-1.5 -top-1.5 inline-flex h-5 w-5 items-center justify-center rounded-full bg-[var(--accent-primary)] text-[var(--text-inverse)] shadow-[0_1px_4px_rgba(0,0,0,0.35)]"
+        >
+          <Check className="h-3 w-3" strokeWidth={3} />
+        </span>
+      )}
       <div className="mb-2 flex items-center gap-2">
         {project && (
           <span

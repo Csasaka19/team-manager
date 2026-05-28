@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 import { Link, useOutletContext, useSearchParams } from 'react-router-dom'
 import {
   DndContext,
@@ -13,13 +13,15 @@ import {
 import { LayoutGrid, Plus } from 'lucide-react'
 import { toast } from 'sonner'
 import { BoardColumn } from '@/components/board/BoardColumn'
+import { BulkActionBar } from '@/components/board/BulkActionBar'
 import {
   FilterBar,
   emptyFilters,
   hasActiveFilters,
   type BoardFilters,
 } from '@/components/board/FilterBar'
-import { TaskCard } from '@/components/board/TaskCard'
+import { TaskCard, type SelectModifiers } from '@/components/board/TaskCard'
+import { ConfirmModal } from '@/components/shared/ConfirmModal'
 import { useAuth } from '@/data/auth'
 import { useData } from '@/data/store'
 import { useKeyboardShortcuts } from '@/hooks/useKeyboardShortcuts'
@@ -35,13 +37,32 @@ const PRIORITY_BY_KEY: Record<string, Priority> = {
 
 export default function BoardPage() {
   const { currentUser, isPM } = useAuth()
-  const { tasks, projects, teamMembers, updateTask, columnOrder } = useData()
+  const {
+    tasks,
+    projects,
+    teamMembers,
+    updateTask,
+    bulkUpdateTasks,
+    bulkDeleteTasks,
+    columnOrder,
+    statusLabels,
+  } = useData()
   const [searchParams] = useSearchParams()
   const { openCreateTask } = useOutletContext<LayoutOutletContext>()
 
   const [filters, setFilters] = useState<BoardFilters>(emptyFilters)
   const [activeDragId, setActiveDragId] = useState<string | null>(null)
   const [selectedId, setSelectedId] = useState<string | null>(null)
+  // Bulk multi-select. The anchor is the last card the user toggled — used
+  // as the start point for Shift+Click range selection within the same column.
+  const [bulkSelection, setBulkSelection] = useState<ReadonlySet<string>>(
+    () => new Set<string>(),
+  )
+  const [bulkAnchor, setBulkAnchor] = useState<{
+    id: string
+    column: TaskStatus
+  } | null>(null)
+  const [bulkConfirmOpen, setBulkConfirmOpen] = useState(false)
 
   // Pre-filter by project from ?project= so deep-links from /projects work.
   const projectParam = searchParams.get('project')
@@ -203,7 +224,139 @@ export default function BoardPage() {
     })
   }
 
+  // --- Multi-select ------------------------------------------------------
+  const clearBulkSelection = useCallback(() => {
+    setBulkSelection((prev) => (prev.size === 0 ? prev : new Set()))
+    setBulkAnchor(null)
+  }, [])
+
+  const findTaskColumn = useCallback(
+    (id: string): TaskStatus | null => {
+      for (const c of columnOrder) {
+        if (tasksByStatus[c].some((t) => t.id === id)) return c
+      }
+      return null
+    },
+    [columnOrder, tasksByStatus],
+  )
+
+  const handleSelectToggle = useCallback(
+    (id: string, mods: SelectModifiers) => {
+      if (!isPM) return // Bulk actions are PM-only; matches '+ New Task' gating.
+      const column = findTaskColumn(id)
+      if (!column) return
+
+      if (mods.shift && bulkAnchor && bulkAnchor.column === column) {
+        // Range select within a single column.
+        const list = tasksByStatus[column]
+        const a = list.findIndex((t) => t.id === bulkAnchor.id)
+        const b = list.findIndex((t) => t.id === id)
+        if (a < 0 || b < 0) return
+        const [lo, hi] = a < b ? [a, b] : [b, a]
+        const ids = list.slice(lo, hi + 1).map((t) => t.id)
+        setBulkSelection((prev) => {
+          const next = new Set(prev)
+          ids.forEach((tid) => next.add(tid))
+          return next
+        })
+        setBulkAnchor({ id, column })
+        return
+      }
+
+      // Toggle membership (ctrl/cmd-click, or shift-click across columns).
+      setBulkSelection((prev) => {
+        const next = new Set(prev)
+        if (next.has(id)) next.delete(id)
+        else next.add(id)
+        return next
+      })
+      setBulkAnchor({ id, column })
+    },
+    [bulkAnchor, findTaskColumn, isPM, tasksByStatus],
+  )
+
+  // Background click clears multi-select. The bulk bar and cards opt out via
+  // dedicated data attributes so a click on them doesn't dismiss the mode.
+  useEffect(() => {
+    if (bulkSelection.size === 0) return
+    const handler = (e: MouseEvent) => {
+      const t = e.target as HTMLElement | null
+      if (!t) return
+      if (
+        t.closest('[data-task-id]') ||
+        t.closest('[data-bulk-bar="true"]') ||
+        t.closest('[role="dialog"]')
+      ) {
+        return
+      }
+      clearBulkSelection()
+    }
+    document.addEventListener('mousedown', handler)
+    return () => document.removeEventListener('mousedown', handler)
+  }, [bulkSelection.size, clearBulkSelection])
+
+  // Drop selected IDs that disappeared from the filtered set.
+  useEffect(() => {
+    if (bulkSelection.size === 0) return
+    const visible = new Set(filteredTasks.map((t) => t.id))
+    let changed = false
+    const next = new Set<string>()
+    bulkSelection.forEach((id) => {
+      if (visible.has(id)) next.add(id)
+      else changed = true
+    })
+    if (changed) {
+      setBulkSelection(next)
+      if (bulkAnchor && !visible.has(bulkAnchor.id)) setBulkAnchor(null)
+    }
+  }, [filteredTasks, bulkSelection, bulkAnchor])
+
+  const selectionActive = bulkSelection.size > 0
+  const selectedIds = useMemo(() => Array.from(bulkSelection), [bulkSelection])
+
+  const runBulk = async (
+    label: string,
+    op: () => Promise<void>,
+  ) => {
+    try {
+      await op()
+      const n = selectedIds.length
+      toast.success(`Updated ${n} task${n === 1 ? '' : 's'}.`)
+      clearBulkSelection()
+    } catch {
+      toast.error(`Could not ${label}.`)
+    }
+  }
+
+  const handleBulkSetPriority = (priority: Priority) =>
+    runBulk('change priority', () => bulkUpdateTasks(selectedIds, { priority }))
+  const handleBulkAssign = (assigneeId: string | null) =>
+    runBulk('reassign tasks', () =>
+      bulkUpdateTasks(selectedIds, { assigneeId }),
+    )
+  const handleBulkSetDueDate = (dueDate: string | null) =>
+    runBulk('change due date', () => bulkUpdateTasks(selectedIds, { dueDate }))
+  const handleBulkMoveTo = (status: TaskStatus) =>
+    runBulk('move tasks', () => bulkUpdateTasks(selectedIds, { status }))
+  const handleBulkDelete = async () => {
+    const n = selectedIds.length
+    setBulkConfirmOpen(false)
+    try {
+      await bulkDeleteTasks(selectedIds)
+      toast.success(`Deleted ${n} task${n === 1 ? '' : 's'}.`)
+      clearBulkSelection()
+    } catch {
+      toast.error('Could not delete tasks.')
+    }
+  }
+
   useKeyboardShortcuts([
+    {
+      key: 'Escape',
+      handler: () => {
+        if (selectionActive) clearBulkSelection()
+      },
+    },
     {
       key: 'ArrowLeft',
       handler: () => moveSelection('left'),
@@ -297,6 +450,9 @@ export default function BoardPage() {
                   canDragTask={canDragTask}
                   selectedTaskId={selectedId}
                   onSelect={setSelectedId}
+                  bulkSelection={bulkSelection}
+                  selectionActive={selectionActive}
+                  onSelectToggle={handleSelectToggle}
                 />
               ))}
             </div>
@@ -319,6 +475,37 @@ export default function BoardPage() {
           </DragOverlay>
         </DndContext>
       )}
+
+      {bulkSelection.size >= 2 && (
+        <BulkActionBar
+          count={bulkSelection.size}
+          members={sortedMembersForFilter}
+          statusLabels={statusLabels}
+          columnOrder={columnOrder}
+          onSetPriority={handleBulkSetPriority}
+          onAssign={handleBulkAssign}
+          onSetDueDate={handleBulkSetDueDate}
+          onMoveTo={handleBulkMoveTo}
+          onDelete={() => setBulkConfirmOpen(true)}
+          onClear={clearBulkSelection}
+        />
+      )}
+
+      <ConfirmModal
+        open={bulkConfirmOpen}
+        title={`Delete ${bulkSelection.size} task${bulkSelection.size === 1 ? '' : 's'}?`}
+        message={
+          <>
+            This will permanently delete the selected task
+            {bulkSelection.size === 1 ? '' : 's'}, along with their activity
+            and notifications. This cannot be undone.
+          </>
+        }
+        confirmLabel="Delete"
+        destructive
+        onConfirm={handleBulkDelete}
+        onCancel={() => setBulkConfirmOpen(false)}
+      />
     </div>
   )
 }

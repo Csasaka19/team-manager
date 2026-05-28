@@ -11,6 +11,7 @@ import {
 } from 'react'
 import {
   DEFAULT_DISCORD_SETTINGS,
+  buildBulkUpdateEmbed,
   buildCommentPostedEmbed,
   buildTaskAssignedEmbed,
   buildTaskCompletedEmbed,
@@ -187,6 +188,13 @@ export interface DataStore {
   createTask: (input: CreateTaskInput) => Promise<Task>
   updateTask: (id: string, patch: UpdateTaskInput) => Promise<Task>
   deleteTask: (id: string) => Promise<void>
+  /**
+   * Apply the same patch to every task in `ids`. Activity/notification side
+   * effects fire per task (matching single-update); Discord emits ONE summary
+   * message scoped to the patch's primary field (status / assignee).
+   */
+  bulkUpdateTasks: (ids: string[], patch: UpdateTaskInput) => Promise<void>
+  bulkDeleteTasks: (ids: string[]) => Promise<void>
 
   // Project CRUD
   createProject: (input: CreateProjectInput) => Promise<Project>
@@ -596,6 +604,127 @@ export function DataProvider({ children }: { children: ReactNode }) {
     [],
   )
 
+  const bulkUpdateTasks = useCallback<DataStore['bulkUpdateTasks']>(
+    (ids, patch) =>
+      withMutation(() => {
+        if (ids.length === 0) return
+        const idSet = new Set(ids)
+        // Snapshot the previous tasks once so per-task side effects (activity /
+        // notification / decision-making for Discord) see consistent state.
+        const prevTasks = tasksRef.current.filter((t) => idSet.has(t.id))
+        const updatedAt = new Date().toISOString()
+
+        setTasks((cur) =>
+          cur.map((t) =>
+            idSet.has(t.id) ? { ...t, ...patch, updatedAt } : t,
+          ),
+        )
+
+        const actorName = memberName(teamMembersRef.current, actorId)
+
+        // Per-task activity + notifications (same as single updateTask).
+        for (const prev of prevTasks) {
+          if (patch.status !== undefined && patch.status !== prev.status) {
+            pushActivity(
+              prev.id,
+              'status_change',
+              `moved this to ${statusLabels[patch.status]}`,
+            )
+            if (prev.assigneeId && prev.assigneeId !== actorId) {
+              pushNotification({
+                recipientId: prev.assigneeId,
+                type: 'status_change',
+                taskId: prev.id,
+              })
+            }
+          }
+          if (
+            patch.assigneeId !== undefined &&
+            patch.assigneeId !== prev.assigneeId
+          ) {
+            pushActivity(
+              prev.id,
+              'assignment',
+              patch.assigneeId
+                ? `assigned this to ${memberName(teamMembers, patch.assigneeId)}`
+                : 'unassigned this task',
+            )
+            if (patch.assigneeId) {
+              pushNotification({
+                recipientId: patch.assigneeId,
+                type: 'assigned',
+                taskId: prev.id,
+              })
+            }
+          }
+          if (patch.priority !== undefined && patch.priority !== prev.priority) {
+            pushActivity(
+              prev.id,
+              'priority_change',
+              `set priority to ${patch.priority.charAt(0).toUpperCase() + patch.priority.slice(1)}`,
+            )
+          }
+        }
+
+        // ONE Discord summary, gated by the most-specific event toggle.
+        const affectedCount = prevTasks.length
+        if (
+          patch.status === 'done' &&
+          prevTasks.some((t) => t.status !== 'done')
+        ) {
+          emitDiscord('task_completed', () =>
+            buildBulkUpdateEmbed({
+              action: 'completed',
+              count: affectedCount,
+              actorName,
+            }),
+          )
+        } else if (patch.status !== undefined) {
+          emitDiscord('task_status_changed', () =>
+            buildBulkUpdateEmbed({
+              action: 'status',
+              count: affectedCount,
+              actorName,
+              toStatusLabel: statusLabelsRef.current[patch.status!],
+            }),
+          )
+        } else if (patch.assigneeId !== undefined && patch.assigneeId !== null) {
+          emitDiscord('task_assigned', () =>
+            buildBulkUpdateEmbed({
+              action: 'assignee',
+              count: affectedCount,
+              actorName,
+              assigneeName: memberName(
+                teamMembersRef.current,
+                patch.assigneeId,
+              ),
+            }),
+          )
+        }
+        // priority, dueDate, unassign — no Discord summary (matches single-update behavior).
+      }),
+    [
+      actorId,
+      pushActivity,
+      pushNotification,
+      teamMembers,
+      statusLabels,
+      emitDiscord,
+    ],
+  )
+
+  const bulkDeleteTasks = useCallback<DataStore['bulkDeleteTasks']>(
+    (ids) =>
+      withMutation(() => {
+        if (ids.length === 0) return
+        const idSet = new Set(ids)
+        setTasks((prev) => prev.filter((t) => !idSet.has(t.id)))
+        setActivities((prev) => prev.filter((a) => !idSet.has(a.taskId)))
+        setNotifications((prev) => prev.filter((n) => !idSet.has(n.taskId)))
+      }),
+    [],
+  )
+
   const createProject = useCallback<DataStore['createProject']>(
     (input) =>
       withMutation(() => {
@@ -963,6 +1092,8 @@ export function DataProvider({ children }: { children: ReactNode }) {
       createTask,
       updateTask,
       deleteTask,
+      bulkUpdateTasks,
+      bulkDeleteTasks,
       createProject,
       updateProject,
       deleteProject,
@@ -1002,6 +1133,8 @@ export function DataProvider({ children }: { children: ReactNode }) {
       createTask,
       updateTask,
       deleteTask,
+      bulkUpdateTasks,
+      bulkDeleteTasks,
       createProject,
       updateProject,
       deleteProject,

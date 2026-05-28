@@ -29,6 +29,7 @@ required to demo. Drop in a real API later and the UI doesn't need to change.
 - [Accessibility](#accessibility)
 - [Keyboard shortcuts](#keyboard-shortcuts)
 - [Quick Create](#quick-create)
+- [Bulk actions](#bulk-actions)
 - [Discord integration](#discord-integration)
 - [Known limitations](#known-limitations)
 - [Contributing](#contributing)
@@ -57,6 +58,11 @@ required to demo. Drop in a real API later and the UI doesn't need to change.
   `+ New Task` button, or a mobile-only floating `+` FAB. Smart project
   defaulting, session-remembered last project, **Create** vs **Create & Open**
   submit modes. See [Quick Create](#quick-create).
+- **Bulk actions on the board** — Ctrl/Cmd-click cards to multi-select,
+  Shift-click to extend a range within a column, then a floating bar lets
+  you set priority / assignee / due date / status, or delete, on every
+  selected card at once. Discord receives one summary message instead of N.
+  See [Bulk actions](#bulk-actions).
 - **Discord integration** — relay task events (created / status changed /
   assigned / completed / commented) to a Discord channel via webhook, with
   rich embeds and per-event toggles in Settings. See
@@ -383,6 +389,9 @@ of the `G` keypress; after that the sequence resets.
 | `←` `↑` `→` `↓` | Move the selection ring between cards. Up/Down moves within a column, Left/Right jumps to the same row in the next non-empty column. |
 | `Enter` | Open the selected task |
 | `1` / `2` / `3` / `4` | Set priority to Critical / High / Medium / Low (PM only) |
+| `Esc` | Clear the multi-select set (see [Bulk actions](#bulk-actions)) |
+| `Ctrl` / `Cmd` + click | Toggle multi-select on a card (PM only) |
+| `Shift` + click | Range-select within a column (PM only) |
 
 The selected card auto-scrolls into view, so navigation works on long
 columns without needing to scroll first.
@@ -471,6 +480,79 @@ The new card appears immediately in the appropriate board column (and
 in the assignee's My Tasks list, if applicable) — no manual refresh,
 since the in-memory store updates synchronously after the artificial
 800 ms mutation delay.
+
+---
+
+## Bulk actions
+
+The fastest way to triage a board. Pick a handful of cards, then change
+priority / assignee / due date / status (or delete) on all of them in
+one click. PM-only — bulk selection mirrors the gating on the
+`+ New Task` button.
+
+### Selecting
+
+| Gesture | Result |
+|---|---|
+| `Ctrl` / `Cmd` + click on a card | Toggle that card in or out of the selection set. |
+| `Shift` + click on a card | Range select within the **same column** — fills everything between the last-toggled anchor and the clicked card, in column-sort order. Across columns, just toggles the target. |
+| Plain click on a card | Navigates to task detail as usual (selection unchanged for the next page). |
+| Plain click on the board background | Clears the selection. |
+| `Esc` | Clears the selection. |
+
+Selected cards get a thick blue ring plus a checkmark badge in the
+top-left corner. Drag-and-drop is **disabled site-wide while any card
+is selected** — so a stray pointer-down can't grab a card instead of
+toggling. To resume dragging, clear the selection.
+
+### The bulk bar
+
+When two or more cards are selected, a floating toolbar slides up from
+the bottom of the screen (200ms ease-out). It's rounded 12 px,
+`var(--bg-elevated)`, with a soft shadow, anchored 16 px above the
+viewport bottom.
+
+| Button | Picker | Notes |
+|---|---|---|
+| **Set Priority** | Critical / High / Medium / Low | Color-coded icons in the menu. |
+| **Assign to** | Unassigned + every team member | First row is Unassigned. |
+| **Set Due Date** | Today / Tomorrow / Next week / No date + custom date input | Same presets as Quick Create. |
+| **Move to** | Every status in `columnOrder` (respects your Settings rename / reorder) | |
+| **Delete** | Confirm modal | Cascades activity + notifications, matching single-task delete. |
+| **Clear selection** | — | Also wired to `Esc`. |
+
+After every action a toast confirms `Updated N tasks.` (or
+`Deleted N tasks.` for delete), and the selection clears so you can move
+on to the next batch.
+
+### Discord summary, not spam
+
+If [Discord integration](#discord-integration) is enabled, a bulk action
+emits **one** summary embed instead of one per task — gated by the
+event toggle that best matches the action:
+
+| Bulk action | Discord toggle | Summary title |
+|---|---|---|
+| Move to **Done** | `task_completed` | ✅ Bulk update: tasks completed |
+| Move to any other status | `task_status_changed` | 🔄 Bulk update: status changed |
+| Assign to a person | `task_assigned` | 👤 Bulk update: tasks assigned |
+| Priority / due date / delete / unassign | — | _No Discord message_ (matches single-task behavior — no events exist for those). |
+
+The summary lists the count, the new value, and the actor — same shape
+as a single-task embed, just count-scaled.
+
+### Where the code lives
+
+- `src/data/store.ts` — `bulkUpdateTasks(ids, patch)` and `bulkDeleteTasks(ids)`.
+  Per-task activity + notifications are pushed in a loop; Discord emits
+  once via `buildBulkUpdateEmbed`. Side-effects run outside the `setTasks`
+  updater so StrictMode's development double-invocation never doubles them.
+- `src/components/board/BulkActionBar.tsx` — the toolbar + its menus.
+- `src/components/board/TaskCard.tsx` — modifier-aware click handler,
+  checkbox badge, `selectionActive` prop that disables drag.
+- `src/pages/BoardPage.tsx` — selection state, Shift-range logic, the
+  document-level click listener that clears on background tap, and the
+  `Esc` keyboard binding.
 
 ---
 
