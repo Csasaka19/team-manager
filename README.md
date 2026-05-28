@@ -162,7 +162,8 @@ src/
 │   ├── my-tasks/               # TaskRow, TaskSection
 │   ├── task-detail/            # TaskHeader, DescriptionEditor, SubtaskSection,
 │   │                           #   SubtaskRow, TagsSection, CommentInput,
-│   │                           #   ActivityCommentFeed, CreateTaskModal
+│   │                           #   ActivityCommentFeed
+│   ├── quick-create/           # QuickCreateModal (compact task creation)
 │   ├── projects/               # ProjectCard, ProjectFormModal
 │   ├── team/                   # TeamMemberCard, InviteMemberModal
 │   ├── settings/               # WorkspaceSection, TagsSection,
