@@ -1,4 +1,5 @@
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
+import { useSearchParams } from 'react-router-dom'
 import { FolderOpen, Plus } from 'lucide-react'
 import { toast } from 'sonner'
 import { ConfirmModal } from '@/components/shared/ConfirmModal'
@@ -19,11 +20,23 @@ export default function ProjectsPage() {
   const { isPM } = useAuth()
   const { projects, tasks, teamMembers, createProject, updateProject, deleteProject } =
     useData()
+  const [searchParams, setSearchParams] = useSearchParams()
 
   const [tab, setTab] = useState<Tab>('active')
   const [createOpen, setCreateOpen] = useState(false)
   const [editing, setEditing] = useState<Project | null>(null)
   const [confirm, setConfirm] = useState<Confirm>(null)
+
+  // Auto-open the New Project modal when arriving from the command palette
+  // ("Create project" action) or any other deep link with ?new=1. Strip the
+  // query param immediately so a refresh doesn't re-open the modal.
+  useEffect(() => {
+    if (searchParams.get('new') !== '1' || !isPM) return
+    setCreateOpen(true)
+    const next = new URLSearchParams(searchParams)
+    next.delete('new')
+    setSearchParams(next, { replace: true })
+  }, [searchParams, setSearchParams, isPM])
 
   const tasksByProject = useMemo(() => {
     const map = new Map<string, typeof tasks>()

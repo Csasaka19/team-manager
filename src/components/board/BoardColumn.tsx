@@ -18,6 +18,10 @@ interface BoardColumnProps {
   draggingTaskId: string | null
   /** Function deciding whether the current user can drag a given task. */
   canDragTask: (task: Task) => boolean
+  /** Task ID that's keyboard-selected (renders with a stronger ring). */
+  selectedTaskId?: string | null
+  /** Called when the user clicks a card — keeps keyboard selection in sync with mouse selection. */
+  onSelect?: (taskId: string) => void
 }
 
 export function BoardColumn({
@@ -27,6 +31,8 @@ export function BoardColumn({
   memberById,
   draggingTaskId,
   canDragTask,
+  selectedTaskId,
+  onSelect,
 }: BoardColumnProps) {
   const { statusLabels } = useData()
   const { setNodeRef, isOver } = useDroppable({
@@ -95,6 +101,8 @@ export function BoardColumn({
                 assignee={task.assigneeId ? memberById.get(task.assigneeId) : undefined}
                 draggable={canDragTask(task)}
                 isDragging={draggingTaskId === task.id}
+                selected={selectedTaskId === task.id}
+                onSelect={onSelect}
               />
             ))}
 
@@ -122,6 +130,8 @@ export function BoardColumn({
                       assignee={task.assigneeId ? memberById.get(task.assigneeId) : undefined}
                       draggable={canDragTask(task)}
                       isDragging={draggingTaskId === task.id}
+                      selected={selectedTaskId === task.id}
+                      onSelect={onSelect}
                     />
                   ))}
               </>

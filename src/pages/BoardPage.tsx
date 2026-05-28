@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react'
-import { useSearchParams } from 'react-router-dom'
+import { Link, useOutletContext, useSearchParams } from 'react-router-dom'
 import {
   DndContext,
   DragOverlay,
@@ -11,7 +11,6 @@ import {
   type DragStartEvent,
 } from '@dnd-kit/core'
 import { LayoutGrid, Plus } from 'lucide-react'
-import { Link } from 'react-router-dom'
 import { toast } from 'sonner'
 import { BoardColumn } from '@/components/board/BoardColumn'
 import {
@@ -21,22 +20,28 @@ import {
   type BoardFilters,
 } from '@/components/board/FilterBar'
 import { TaskCard } from '@/components/board/TaskCard'
-import {
-  CreateTaskModal,
-  type CreateTaskValues,
-} from '@/components/task-detail/CreateTaskModal'
 import { useAuth } from '@/data/auth'
 import { useData } from '@/data/store'
-import type { Task, TaskStatus } from '@/data/types'
+import { useKeyboardShortcuts } from '@/hooks/useKeyboardShortcuts'
+import type { LayoutOutletContext } from '@/components/layout/Layout'
+import type { Priority, Task, TaskStatus } from '@/data/types'
+
+const PRIORITY_BY_KEY: Record<string, Priority> = {
+  '1': 'critical',
+  '2': 'high',
+  '3': 'medium',
+  '4': 'low',
+}
 
 export default function BoardPage() {
   const { currentUser, isPM } = useAuth()
-  const { tasks, projects, teamMembers, updateTask, createTask, columnOrder } = useData()
+  const { tasks, projects, teamMembers, updateTask, columnOrder } = useData()
   const [searchParams] = useSearchParams()
+  const { openCreateTask } = useOutletContext<LayoutOutletContext>()
 
   const [filters, setFilters] = useState<BoardFilters>(emptyFilters)
   const [activeDragId, setActiveDragId] = useState<string | null>(null)
-  const [createOpen, setCreateOpen] = useState(false)
+  const [selectedId, setSelectedId] = useState<string | null>(null)
 
   // Pre-filter by project from ?project= so deep-links from /projects work.
   const projectParam = searchParams.get('project')
@@ -50,7 +55,6 @@ export default function BoardPage() {
   }, [projectParam, projects])
 
   const sensors = useSensors(
-    // 6px distance avoids triggering drag on simple card clicks (which navigate).
     useSensor(PointerSensor, { activationConstraint: { distance: 6 } }),
     useSensor(KeyboardSensor),
   )
@@ -77,8 +81,28 @@ export default function BoardPage() {
       done: [],
     }
     for (const t of filteredTasks) buckets[t.status].push(t)
+    for (const s of Object.keys(buckets) as TaskStatus[]) {
+      buckets[s].sort(sortTasks)
+    }
     return buckets
   }, [filteredTasks])
+
+  // If the previously selected card has been filtered out (or doesn't exist),
+  // clear the selection so arrow nav restarts from the first visible card.
+  useEffect(() => {
+    if (!selectedId) return
+    const stillVisible = filteredTasks.some((t) => t.id === selectedId)
+    if (!stillVisible) setSelectedId(null)
+  }, [filteredTasks, selectedId])
+
+  // Scroll the newly selected card into view when selection changes.
+  useEffect(() => {
+    if (!selectedId) return
+    const el = document.querySelector<HTMLElement>(
+      `[data-task-id="${selectedId}"]`,
+    )
+    el?.scrollIntoView({ block: 'nearest', behavior: 'smooth' })
+  }, [selectedId])
 
   const canDragTask = (task: Task): boolean => {
     if (!currentUser) return false
@@ -109,12 +133,105 @@ export default function BoardPage() {
     if (task.status === targetStatus) return
     if (!canDragTask(task)) return
 
-    // Optimistic — updateTask resolves after 800ms but the local setState inside
-    // it runs synchronously, so the card moves immediately.
     updateTask(taskId, { status: targetStatus }).catch(() => {
       toast.error('Could not move task. Please try again.')
     })
   }
+
+  // Keyboard navigation across cards. We model the board as a 2D grid where the
+  // outer axis is column (in `columnOrder`) and the inner axis is the task's
+  // index in its sorted column. Up/Down move within a column; Left/Right move
+  // across columns, preserving row-index where possible.
+  const moveSelection = (dir: 'left' | 'right' | 'up' | 'down') => {
+    const firstCard = (col: TaskStatus): string | null =>
+      tasksByStatus[col][0]?.id ?? null
+
+    if (!selectedId) {
+      const startCol = columnOrder.find((c) => tasksByStatus[c].length > 0)
+      if (startCol) setSelectedId(firstCard(startCol))
+      return
+    }
+
+    let col: TaskStatus | undefined
+    let row = -1
+    for (const c of columnOrder) {
+      const idx = tasksByStatus[c].findIndex((t) => t.id === selectedId)
+      if (idx >= 0) {
+        col = c
+        row = idx
+        break
+      }
+    }
+    if (!col || row < 0) return
+
+    if (dir === 'up' || dir === 'down') {
+      const list = tasksByStatus[col]
+      const next = dir === 'up' ? row - 1 : row + 1
+      if (next < 0 || next >= list.length) return
+      const target = list[next]
+      if (target) setSelectedId(target.id)
+      return
+    }
+
+    // Horizontal — scan the next/prev non-empty column.
+    const colIdx = columnOrder.indexOf(col)
+    const step = dir === 'left' ? -1 : 1
+    for (let i = colIdx + step; i >= 0 && i < columnOrder.length; i += step) {
+      const target = columnOrder[i]
+      if (!target) break
+      const list = tasksByStatus[target]
+      if (list.length === 0) continue
+      const clampedRow = Math.min(row, list.length - 1)
+      const next = list[clampedRow]
+      if (next) setSelectedId(next.id)
+      return
+    }
+  }
+
+  const openSelected = () => {
+    if (!selectedId) return
+    const el = document.querySelector<HTMLElement>(
+      `[data-task-id="${selectedId}"]`,
+    )
+    el?.click()
+  }
+
+  const setPriorityForSelected = (priority: Priority) => {
+    if (!selectedId || !isPM) return
+    updateTask(selectedId, { priority }).catch(() => {
+      toast.error('Could not change priority.')
+    })
+  }
+
+  useKeyboardShortcuts([
+    {
+      key: 'ArrowLeft',
+      handler: () => moveSelection('left'),
+    },
+    {
+      key: 'ArrowRight',
+      handler: () => moveSelection('right'),
+    },
+    {
+      key: 'ArrowUp',
+      handler: () => moveSelection('up'),
+    },
+    {
+      key: 'ArrowDown',
+      handler: () => moveSelection('down'),
+    },
+    {
+      key: 'Enter',
+      handler: openSelected,
+    },
+    {
+      key: ['1', '2', '3', '4'],
+      handler: (e) => {
+        const p = PRIORITY_BY_KEY[e.key]
+        if (p) setPriorityForSelected(p)
+      },
+    },
+  ])
 
   const hasAnyTasks = tasks.length > 0
   const filtersActive = hasActiveFilters(filters)
@@ -123,15 +240,6 @@ export default function BoardPage() {
     () => [...teamMembers].sort((a, b) => a.name.localeCompare(b.name)),
     [teamMembers],
   )
-
-  const handleCreate = async (values: CreateTaskValues) => {
-    await createTask(values)
-    setCreateOpen(false)
-    toast.success('Task created.')
-  }
-
-  const activeProjectId =
-    filters.projectId !== 'all' ? filters.projectId : undefined
 
   return (
     <div className="space-y-4 md:space-y-6">
@@ -145,7 +253,11 @@ export default function BoardPage() {
         {isPM && projects.some((p) => !p.archived) && (
           <button
             type="button"
-            onClick={() => setCreateOpen(true)}
+            onClick={() =>
+              openCreateTask(
+                filters.projectId !== 'all' ? filters.projectId : undefined,
+              )
+            }
             className="inline-flex h-9 items-center gap-1.5 rounded-md bg-[var(--accent-primary)] px-4 text-sm font-medium text-[var(--text-inverse)] transition-colors hover:bg-[var(--accent-hover)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent-focus)]"
           >
             <Plus className="h-4 w-4" aria-hidden="true" />
@@ -159,15 +271,6 @@ export default function BoardPage() {
         members={sortedMembersForFilter}
         filters={filters}
         onChange={setFilters}
-      />
-
-      <CreateTaskModal
-        open={createOpen}
-        projects={projects}
-        members={teamMembers}
-        defaultProjectId={activeProjectId}
-        onClose={() => setCreateOpen(false)}
-        onSubmit={handleCreate}
       />
 
       {!hasAnyTasks ? (
@@ -192,6 +295,8 @@ export default function BoardPage() {
                   memberById={memberById}
                   draggingTaskId={activeDragId}
                   canDragTask={canDragTask}
+                  selectedTaskId={selectedId}
+                  onSelect={setSelectedId}
                 />
               ))}
             </div>
@@ -270,4 +375,20 @@ function filterTasks(tasks: Task[], f: BoardFilters): Task[] {
     if (query && !t.title.toLowerCase().includes(query)) return false
     return true
   })
+}
+
+const PRIORITY_RANK: Record<Task['priority'], number> = {
+  critical: 0,
+  high: 1,
+  medium: 2,
+  low: 3,
+}
+
+function sortTasks(a: Task, b: Task): number {
+  const p = PRIORITY_RANK[a.priority] - PRIORITY_RANK[b.priority]
+  if (p !== 0) return p
+  if (a.dueDate && b.dueDate) return a.dueDate.localeCompare(b.dueDate)
+  if (a.dueDate) return -1
+  if (b.dueDate) return 1
+  return a.createdAt.localeCompare(b.createdAt)
 }

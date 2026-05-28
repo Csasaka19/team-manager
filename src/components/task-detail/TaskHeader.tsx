@@ -146,6 +146,7 @@ export function TaskHeader({
       <dl className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4">
         <Field label="Status">
           <select
+            id="task-status-select"
             aria-label="Status"
             value={task.status}
             disabled={!canChangeStatus}
@@ -163,6 +164,7 @@ export function TaskHeader({
 
         <Field label="Priority">
           <select
+            id="task-priority-select"
             aria-label="Priority"
             value={task.priority}
             disabled={!canChangePriority}
@@ -187,6 +189,7 @@ export function TaskHeader({
               />
             )}
             <select
+              id="task-assignee-select"
               aria-label="Assignee"
               value={task.assigneeId ?? ''}
               disabled={!canChangeAssignee}
@@ -205,6 +208,7 @@ export function TaskHeader({
 
         <Field label="Due date">
           <input
+            id="task-due-date"
             type="date"
             aria-label="Due date"
             value={task.dueDate ?? ''}

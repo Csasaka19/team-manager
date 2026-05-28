@@ -157,6 +157,7 @@ export function CommentInput({ members, currentUser, onSubmit }: CommentInputPro
       {currentUser && <Avatar name={currentUser.name} size="sm" />}
       <div className="relative min-w-0 flex-1">
         <textarea
+          id="task-comment-input"
           ref={textareaRef}
           value={text}
           onChange={handleChange}

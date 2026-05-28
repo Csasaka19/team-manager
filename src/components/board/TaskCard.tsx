@@ -16,6 +16,10 @@ interface TaskCardProps {
   isDragging?: boolean
   /** When true, render as an "overlay" preview (used inside DragOverlay) — no draggable handle. */
   overlay?: boolean
+  /** Renders the keyboard-navigation highlight ring. */
+  selected?: boolean
+  /** Called on click so the page can sync mouse and keyboard selection. */
+  onSelect?: (taskId: string) => void
 }
 
 export function TaskCard({
@@ -25,6 +29,8 @@ export function TaskCard({
   draggable,
   isDragging = false,
   overlay = false,
+  selected = false,
+  onSelect,
 }: TaskCardProps) {
   const navigate = useNavigate()
   const draggableState = useDraggable({
@@ -45,6 +51,7 @@ export function TaskCard({
       e.preventDefault()
       return
     }
+    onSelect?.(task.id)
     navigate(`/tasks/${task.id}`)
   }
 
@@ -60,6 +67,7 @@ export function TaskCard({
     <article
       ref={overlay ? undefined : draggableState.setNodeRef}
       style={style}
+      data-task-id={overlay ? undefined : task.id}
       {...(overlay ? {} : draggableState.attributes)}
       {...(overlay ? {} : draggableState.listeners)}
       onClick={overlay ? undefined : handleClick}
@@ -79,10 +87,12 @@ export function TaskCard({
       tabIndex={overlay ? -1 : 0}
       role={overlay ? undefined : 'button'}
       aria-label={`Open task ${task.title}`}
+      aria-selected={selected || undefined}
       className={cn(
         'group select-none rounded-lg border border-[var(--border-subtle)] bg-[var(--bg-surface)] p-3 text-left transition-[border-color,box-shadow] duration-150',
         'hover:border-[var(--border-default)] hover:shadow-[0_2px_8px_rgba(0,0,0,0.2)]',
         'focus-visible:border-[var(--accent-primary)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent-focus)]',
+        selected && 'border-[var(--accent-primary)] ring-2 ring-[var(--accent-focus)]',
         overlay && 'rotate-2 opacity-90 shadow-[0_8px_24px_rgba(0,0,0,0.3)] cursor-grabbing',
       )}
     >

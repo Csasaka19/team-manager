@@ -164,7 +164,7 @@ src/
 │   ├── team/                   # TeamMemberCard, InviteMemberModal
 │   ├── settings/               # WorkspaceSection, TagsSection,
 │   │                           #   NotificationsSection, AccountSection
-│   ├── search/                 # SearchModal
+│   ├── command-palette/        # CommandPalette (Cmd+K search + actions)
 │   └── notifications/          # NotificationBell
 │
 ├── data/

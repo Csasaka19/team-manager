@@ -11,7 +11,25 @@ import { TaskHeader } from '@/components/task-detail/TaskHeader'
 import { ConfirmModal } from '@/components/shared/ConfirmModal'
 import { useAuth } from '@/data/auth'
 import { useData } from '@/data/store'
+import { useKeyboardShortcuts } from '@/hooks/useKeyboardShortcuts'
 import type { Priority, Subtask, TaskStatus } from '@/data/types'
+
+/** Map single-letter shortcut → element ID that should receive focus. */
+const FOCUS_TARGETS: Record<string, string> = {
+  a: 'task-assignee-select',
+  p: 'task-priority-select',
+  s: 'task-status-select',
+  d: 'task-due-date',
+  m: 'task-comment-input',
+}
+
+function focusById(id: string) {
+  const el = document.getElementById(id)
+  if (el && !(el as HTMLInputElement | HTMLSelectElement).disabled) {
+    el.focus()
+    el.scrollIntoView({ block: 'center', behavior: 'smooth' })
+  }
+}
 
 export default function TaskDetailPage() {
   const { taskId } = useParams<{ taskId: string }>()
@@ -35,6 +53,16 @@ export default function TaskDetailPage() {
 
   const task = tasks.find((t) => t.id === taskId)
   const [confirmOpen, setConfirmOpen] = useState(false)
+
+  useKeyboardShortcuts([
+    {
+      key: ['a', 'p', 's', 'd', 'm'],
+      handler: (e) => {
+        const id = FOCUS_TARGETS[e.key.toLowerCase()]
+        if (id) focusById(id)
+      },
+    },
+  ])
 
   const project = task ? projects.find((p) => p.id === task.projectId) : undefined
   const creator = task ? teamMembers.find((m) => m.id === task.createdBy) : undefined
