@@ -27,6 +27,7 @@ required to demo. Drop in a real API later and the UI doesn't need to change.
 - [Mock data & the "demo now" anchor](#mock-data--the-demo-now-anchor)
 - [Responsive design](#responsive-design)
 - [Accessibility](#accessibility)
+- [Keyboard shortcuts](#keyboard-shortcuts)
 - [Known limitations](#known-limitations)
 - [Contributing](#contributing)
 - [License](#license)
@@ -45,8 +46,10 @@ required to demo. Drop in a real API later and the UI doesn't need to change.
   controls, tags, and a combined activity + comment feed.
 - **PM dashboard** with summary cards, a "Needs attention" surface (overdue /
   unassigned / stale / open questions), and a 20-item activity feed.
-- **Global search** (`Cmd`/`Ctrl` + `K`) with debounced grouped results across
-  tasks and projects, full keyboard navigation.
+- **Command palette** (`Cmd`/`Ctrl` + `K` or `/`) groups Actions, Tasks, and
+  Projects in one debounced search. Pair it with the global shortcut layer —
+  `G` then `D`/`B`/`M`/`P`/`T` for navigation, `C` to create a task, `?` to see
+  the full reference. See [Keyboard shortcuts](#keyboard-shortcuts).
 - **In-app notifications** with a bell + badge in the top bar, auto-emitted on
   assignment / comment / @mention / status change, with per-user preferences
   that actually gate emission.
@@ -321,10 +324,81 @@ most users intuit. Implementation notes:
 - `--text-primary` on `--bg-base` exceeds 7:1 contrast; `--text-secondary`
   exceeds 4.5:1.
 - Keyboard navigation: Tab through every interactive element; Enter / Space
-  to activate; Escape to close modals, dropdowns, and the search palette;
-  arrow keys to navigate the search and `@mention` lists.
+  to activate; Escape to close modals, dropdowns, and the command palette;
+  arrow keys to navigate result lists and `@mention` lists. A full power-user
+  shortcut layer is documented in [Keyboard shortcuts](#keyboard-shortcuts).
 - ARIA labels on every icon-only button; `aria-expanded` on disclosure
   triggers; `aria-modal` and `role="dialog"` on every modal.
+
+---
+
+## Keyboard shortcuts
+
+Press `?` from anywhere in the app to see this list in a modal. All
+shortcuts are disabled while focus is in an `<input>`, `<textarea>`,
+`<select>`, or `contenteditable` element, so they never conflict with
+typing — the one exception is `Cmd`/`Ctrl` + `K`, which always summons
+the palette.
+
+A floating `?` button sits in the bottom-right of every page (on
+desktop) for users who prefer to discover shortcuts visually.
+
+### Global
+
+| Shortcut | Action |
+|---|---|
+| `Cmd` / `Ctrl` + `K` | Open the command palette |
+| `/` | Open the command palette (single-key) |
+| `?` | Show the keyboard-shortcut reference |
+| `C` | Create a new task (PM only) |
+| `G` then `D` | Go to Dashboard (PM only) |
+| `G` then `B` | Go to Board |
+| `G` then `M` | Go to My Tasks |
+| `G` then `P` | Go to Projects |
+| `G` then `T` | Go to Team |
+
+The `G`-prefixed navigation accepts the follow-up letter within 1.5 s
+of the `G` keypress; after that the sequence resets.
+
+### Board (`/board`)
+
+| Shortcut | Action |
+|---|---|
+| `←` `↑` `→` `↓` | Move the selection ring between cards. Up/Down moves within a column, Left/Right jumps to the same row in the next non-empty column. |
+| `Enter` | Open the selected task |
+| `1` / `2` / `3` / `4` | Set priority to Critical / High / Medium / Low (PM only) |
+
+The selected card auto-scrolls into view, so navigation works on long
+columns without needing to scroll first.
+
+### Task detail (`/tasks/:taskId`)
+
+| Shortcut | Action |
+|---|---|
+| `A` | Focus the assignee dropdown |
+| `P` | Focus the priority dropdown |
+| `S` | Focus the status dropdown |
+| `D` | Focus the due-date picker |
+| `M` | Jump to the comment input |
+
+Focus-only — the dropdown opens with Space / Alt-Down once focused,
+which keeps the shortcuts dependable across browsers (programmatic
+`select` opening isn't portable).
+
+### Command palette
+
+The palette groups results into three sections, max 5 rows per group:
+
+- **Actions** — Create task, Create project, the five `G`-prefixed
+  navigations, Go to Settings, Log out. Each row shows the keyboard
+  shortcut next to its label so it's discoverable.
+- **Tasks** — fuzzy match against title and description. Each row shows
+  the project dot, project name, assignee, and a status pill.
+- **Projects** — fuzzy match against name and description. Selecting a
+  project navigates to `/board?project=<id>`.
+
+`↑` / `↓` move within the merged result list, `Enter` selects, `Esc`
+closes.
 
 ---
 
