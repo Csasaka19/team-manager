@@ -1,9 +1,15 @@
 import { useState } from 'react'
 import { Link } from 'react-router-dom'
-import { Check, ChevronDown, ChevronRight } from 'lucide-react'
+import { AlertTriangle, Check, ChevronDown, ChevronRight } from 'lucide-react'
 import { PriorityBadge } from '@/components/shared/PriorityBadge'
 import { cn } from '@/lib/utils'
-import { daysBetween, isOverdue, now } from '@/lib/date-utils'
+import {
+  DUE_TONE_CLASS,
+  daysBetween,
+  formatRelativeDueDate,
+  isOverdue,
+  now,
+} from '@/lib/date-utils'
 import { useData } from '@/data/store'
 import type { Project, Task } from '@/data/types'
 
@@ -27,6 +33,10 @@ export function TaskRow({ task, project, completed = false }: TaskRowProps) {
     !completed && isOverdue(task.dueDate) && task.dueDate
       ? Math.max(1, daysBetween(task.dueDate, now()))
       : 0
+  const overdue = overdueDays > 0
+  // Non-overdue dates still get the relative label ("Tomorrow", "Wednesday"…)
+  // shown next to the priority badge.
+  const due = !completed && !overdue ? formatRelativeDueDate(task.dueDate) : null
 
   const handleCheckTask = async (e: React.MouseEvent) => {
     e.stopPropagation()
@@ -63,6 +73,10 @@ export function TaskRow({ task, project, completed = false }: TaskRowProps) {
         'rounded-lg border border-[var(--border-subtle)] bg-[var(--bg-surface)] transition-colors',
         !completed && 'hover:border-[var(--border-default)]',
         completed && 'opacity-70',
+        // Soft red tint behind the row when overdue. 5% alpha keeps text
+        // readable; the explicit Overdue chip carries the louder signal.
+        overdue &&
+          'bg-[color-mix(in_srgb,var(--priority-critical)_5%,var(--bg-surface))]',
       )}
     >
       <div
@@ -124,8 +138,19 @@ export function TaskRow({ task, project, completed = false }: TaskRowProps) {
 
           <div className="mt-2 flex flex-wrap items-center gap-2">
             {overdueDays > 0 && (
-              <span className="rounded bg-[color-mix(in_srgb,var(--priority-critical)_15%,transparent)] px-2 py-0.5 text-[11px] font-semibold uppercase tracking-[0.5px] text-[var(--priority-critical)]">
+              <span className="inline-flex items-center gap-1 rounded bg-[color-mix(in_srgb,var(--priority-critical)_15%,transparent)] px-2 py-0.5 text-[11px] font-semibold uppercase tracking-[0.5px] text-[var(--priority-critical)]">
+                <AlertTriangle className="h-3 w-3" aria-hidden="true" />
                 Overdue — {overdueDays} {overdueDays === 1 ? 'day' : 'days'}
+              </span>
+            )}
+            {due && (
+              <span
+                className={cn(
+                  'text-[11px] font-medium',
+                  DUE_TONE_CLASS[due.tone],
+                )}
+              >
+                {due.label}
               </span>
             )}
             <PriorityBadge priority={task.priority} />

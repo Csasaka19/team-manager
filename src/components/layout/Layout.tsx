@@ -11,11 +11,18 @@ import { ShortcutsHelp } from '@/components/shared/ShortcutsHelp'
 import { useAuth } from '@/data/auth'
 import { useData } from '@/data/store'
 import { useKeyboardShortcuts } from '@/hooks/useKeyboardShortcuts'
+import { daysBetween, isOverdue, now } from '@/lib/date-utils'
+import {
+  buildOverdueSummaryEmbed,
+  sendDiscordWebhook,
+} from '@/services/discord'
 import { QuickCreateFab } from './QuickCreateFab'
 import { Sidebar } from './Sidebar'
 import { TopBar } from './TopBar'
 
 const G_SEQUENCE_WINDOW_MS = 1500
+
+const OVERDUE_SUMMARY_SESSION_KEY = 'team-manager.overdue-summary-sent'
 
 export interface LayoutOutletContext {
   /**
@@ -37,6 +44,7 @@ export function Layout() {
   const { isPM, currentUser } = useAuth()
   const { tasks, projects, teamMembers, createTask } = useData()
 
+  const { discordSettings } = useData()
   const [mobileOpen, setMobileOpen] = useState(false)
   const [paletteOpen, setPaletteOpen] = useState(false)
   const [helpOpen, setHelpOpen] = useState(false)
@@ -59,6 +67,48 @@ export function Layout() {
   useEffect(() => {
     setMobileOpen(false)
   }, [location.pathname])
+
+  // Daily overdue digest to Discord — runs once per session when the user
+  // first lands on an authenticated page. Approximates the spec's "daily
+  // check" without a backend scheduler. Conditions: Discord webhook is
+  // configured, the task_overdue toggle is on, at least one overdue task
+  // exists, and we haven't already sent this session (sessionStorage flag).
+  const overdueSummarySent = useRef(false)
+  useEffect(() => {
+    if (overdueSummarySent.current) return
+    if (typeof window === 'undefined') return
+    try {
+      if (window.sessionStorage.getItem(OVERDUE_SUMMARY_SESSION_KEY)) {
+        overdueSummarySent.current = true
+        return
+      }
+    } catch {
+      // sessionStorage unavailable — treat as "not yet sent".
+    }
+    if (!discordSettings.webhookUrl) return
+    if (!discordSettings.events.task_overdue) return
+
+    const overdue = tasks
+      .filter((t) => t.status !== 'done' && isOverdue(t.dueDate))
+      .map((t) => ({
+        task: t,
+        assigneeName: t.assigneeId
+          ? teamMembers.find((m) => m.id === t.assigneeId)?.name ?? 'Unknown'
+          : 'Unassigned',
+        daysOverdue: Math.max(1, daysBetween(t.dueDate!, now())),
+      }))
+    if (overdue.length === 0) return
+
+    overdueSummarySent.current = true
+    try {
+      window.sessionStorage.setItem(OVERDUE_SUMMARY_SESSION_KEY, '1')
+    } catch {
+      // ignore
+    }
+    void sendDiscordWebhook(discordSettings.webhookUrl, {
+      embeds: [buildOverdueSummaryEmbed({ overdueTasks: overdue })],
+    })
+  }, [discordSettings, tasks, teamMembers])
 
   /**
    * Resolves the project to pre-select in Quick Create.

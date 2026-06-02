@@ -10,7 +10,8 @@ import {
   type LucideIcon,
 } from 'lucide-react'
 import { Avatar } from '@/components/shared/Avatar'
-import { now } from '@/lib/date-utils'
+import { DueDatePicker as SharedDueDatePicker } from '@/components/shared/DueDatePicker'
+import { formatRelativeDueDate } from '@/lib/date-utils'
 import { cn } from '@/lib/utils'
 import {
   PRIORITY_LABELS,
@@ -57,26 +58,11 @@ const PRIORITY_ORDER: Priority[] = ['critical', 'high', 'medium', 'low']
 const INPUT_CLASS =
   'h-9 w-full rounded-md border border-[var(--border-subtle)] bg-[var(--bg-input)] px-3 text-sm text-[var(--text-primary)] outline-none transition-colors placeholder:text-[var(--text-muted)] focus:border-[var(--accent-primary)] focus:ring-2 focus:ring-[var(--accent-focus)]'
 
-function formatYYYYMMDD(d: Date): string {
-  const yyyy = d.getFullYear()
-  const mm = String(d.getMonth() + 1).padStart(2, '0')
-  const dd = String(d.getDate()).padStart(2, '0')
-  return `${yyyy}-${mm}-${dd}`
-}
-
-function dueLabel(iso: string | null): string {
+/** Chip label for the picker trigger. Falls back to "No date" so the empty
+ *  state still gives the user something clickable. */
+function chipLabel(iso: string | null): string {
   if (!iso) return 'No date'
-  const today = formatYYYYMMDD(now())
-  const tomorrow = formatYYYYMMDD(addDays(now(), 1))
-  if (iso === today) return 'Today'
-  if (iso === tomorrow) return 'Tomorrow'
-  return new Date(iso).toLocaleDateString(undefined, { month: 'short', day: 'numeric' })
-}
-
-function addDays(d: Date, days: number): Date {
-  const r = new Date(d)
-  r.setDate(r.getDate() + days)
-  return r
+  return formatRelativeDueDate(iso)?.label ?? 'No date'
 }
 
 export function QuickCreateModal({
@@ -434,76 +420,35 @@ function DueDatePicker({
     return () => document.removeEventListener('mousedown', onDocClick)
   }, [open])
 
-  const presets: Array<{ label: string; value: string | null }> = [
-    { label: 'Today', value: formatYYYYMMDD(now()) },
-    { label: 'Tomorrow', value: formatYYYYMMDD(addDays(now(), 1)) },
-    { label: 'Next week', value: formatYYYYMMDD(addDays(now(), 7)) },
-    { label: 'No date', value: null },
-  ]
-
   return (
     <div ref={containerRef} className="relative">
       <button
         type="button"
         onClick={() => setOpen((o) => !o)}
-        title={value ? `Due ${dueLabel(value)}` : 'Set due date'}
-        aria-label={value ? `Due date: ${dueLabel(value)}` : 'Set due date'}
+        title={value ? `Due ${chipLabel(value)}` : 'Set due date'}
+        aria-label={value ? `Due date: ${chipLabel(value)}` : 'Set due date'}
         aria-haspopup="dialog"
         aria-expanded={open}
         className="inline-flex h-7 items-center gap-1.5 rounded-md border border-[var(--border-subtle)] bg-[var(--bg-surface)] px-2 text-xs font-medium text-[var(--text-secondary)] transition-colors hover:border-[var(--border-default)] hover:text-[var(--text-primary)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent-focus)]"
       >
         <Calendar className="h-3.5 w-3.5" aria-hidden="true" />
-        <span>{dueLabel(value)}</span>
+        <span>{chipLabel(value)}</span>
       </button>
 
       {open && (
         <div
           role="dialog"
           aria-label="Due date"
-          className="absolute left-0 top-full z-10 mt-1 w-56 rounded-md border border-[var(--border-default)] bg-[var(--bg-elevated)] p-2 shadow-[0_4px_16px_rgba(0,0,0,0.3)]"
+          className="absolute left-0 top-full z-10 mt-1 w-64 rounded-md border border-[var(--border-default)] bg-[var(--bg-elevated)] shadow-[0_4px_16px_rgba(0,0,0,0.3)]"
         >
-          <ul className="space-y-0.5">
-            {presets.map((preset) => (
-              <li key={preset.label}>
-                <button
-                  type="button"
-                  onClick={() => {
-                    onChange(preset.value)
-                    setOpen(false)
-                  }}
-                  className={cn(
-                    'flex w-full items-center justify-between rounded px-2 py-1.5 text-left text-sm transition-colors hover:bg-[var(--bg-surface)]',
-                    value === preset.value
-                      ? 'text-[var(--accent-primary)]'
-                      : 'text-[var(--text-primary)]',
-                  )}
-                >
-                  <span>{preset.label}</span>
-                  {preset.value && (
-                    <span className="text-[10px] tabular-nums text-[var(--text-muted)]">
-                      {new Date(preset.value).toLocaleDateString(undefined, {
-                        month: 'short',
-                        day: 'numeric',
-                      })}
-                    </span>
-                  )}
-                </button>
-              </li>
-            ))}
-          </ul>
-          <label className="mt-2 block">
-            <span className="block px-2 pb-1 text-[10px] font-semibold uppercase tracking-[0.5px] text-[var(--text-muted)]">
-              Custom
-            </span>
-            <input
-              type="date"
-              value={value ?? ''}
-              onChange={(e) => onChange(e.target.value === '' ? null : e.target.value)}
-              className="h-8 w-full rounded border border-[var(--border-subtle)] bg-[var(--bg-input)] px-2 text-xs text-[var(--text-primary)] outline-none focus:border-[var(--accent-primary)]"
-            />
-          </label>
+          <SharedDueDatePicker
+            value={value}
+            onChange={onChange}
+            onClose={() => setOpen(false)}
+          />
         </div>
       )}
     </div>
   )
 }
+

@@ -30,6 +30,8 @@ required to demo. Drop in a real API later and the UI doesn't need to change.
 - [Keyboard shortcuts](#keyboard-shortcuts)
 - [Quick Create](#quick-create)
 - [Bulk actions](#bulk-actions)
+- [Board view modes](#board-view-modes)
+- [Due dates](#due-dates)
 - [Discord integration](#discord-integration)
 - [Known limitations](#known-limitations)
 - [Contributing](#contributing)
@@ -63,6 +65,15 @@ required to demo. Drop in a real API later and the UI doesn't need to change.
   you set priority / assignee / due date / status, or delete, on every
   selected card at once. Discord receives one summary message instead of N.
   See [Bulk actions](#bulk-actions).
+- **Board ↔ List view toggle** — flip `/board` into a sortable
+  spreadsheet-style list with inline-edit popovers on every cell, a
+  checkbox to mark done, and responsive column-hiding. See
+  [Board view modes](#board-view-modes).
+- **Smart due dates** — relative labels everywhere ("Today",
+  "Wednesday", "Next Tuesday", "Overdue — 3 days"), seven preset buttons
+  in every date picker, overdue rows/cards visually flagged across
+  Board / My Tasks / Dashboard, and a once-per-session Discord digest
+  of every overdue task. See [Due dates](#due-dates).
 - **Discord integration** — relay task events (created / status changed /
   assigned / completed / commented) to a Discord channel via webhook, with
   rich embeds and per-event toggles in Settings. See
@@ -217,7 +228,7 @@ docs/
 |---|---|---|---|
 | Login | `/login` | Unauthenticated | ✅ |
 | Dashboard | `/dashboard` | PM | ✅ PM-only, summary cards + needs-attention + activity |
-| Board | `/board` | All | ✅ kanban with DnD, filters, `?project=` deep links, PM-only `+ New Task` |
+| Board | `/board` | All | ✅ kanban + list view toggle, filters, `?project=` deep links, PM-only `+ New Task` |
 | My Tasks | `/my-tasks` | Member | ✅ Due Today / This Week / Upcoming / Completed buckets |
 | Task Detail | `/tasks/:taskId` | All | ✅ full edit surface; 404 for invalid IDs |
 | Projects | `/projects` | All | ✅ grid, archived tab, PM-only CRUD |
@@ -553,6 +564,157 @@ as a single-task embed, just count-scaled.
 - `src/pages/BoardPage.tsx` — selection state, Shift-range logic, the
   document-level click listener that clears on background tap, and the
   `Esc` keyboard binding.
+
+---
+
+## Board view modes
+
+The `/board` page renders in one of two layouts. A segmented icon
+toggle in the page header switches between them; the choice is
+persisted per browser at `team-manager.board-view`.
+
+| Mode | Strength |
+|---|---|
+| **Kanban** (default) | Spatial — see WIP at a glance, drag between columns. |
+| **List** | Dense — scan many tasks, sort and inline-edit without leaving the page. |
+
+The same FilterBar (project, assignee, priority, search) drives both
+modes; switching the view never resets your filters.
+
+### List view columns
+
+| Column | Visibility | Sortable | Editable |
+|---|---|---|---|
+| ✓ (mark done) | always | — | yes (checkbox) |
+| Title | always | yes | open task detail |
+| Project | `md+` (hidden on mobile) | yes | — |
+| Status | always | yes | yes (pill popover) |
+| Priority | always | yes | yes (pill popover) |
+| Assignee | always | yes | yes (avatar popover) |
+| Due date | always | yes | yes (presets + custom date) |
+| Subtasks | `lg+` (hidden on tablet + mobile) | yes (by % done) | — |
+
+**Default sort** is priority ascending (critical first), then due date
+ascending (soonest first, nulls last). Clicking a column header
+overrides with a single-column sort; clicking the same header again
+flips direction. Aria-sort on the header announces the state.
+
+### Inline editing
+
+Click any editable cell to open a small popover, pick a value, and
+the change saves immediately (optimistic UI). The cell briefly flashes
+a blue background for ~600 ms via the `cellFlash` keyframe in
+`src/index.css` to confirm the write landed. Permissions match the
+task-detail page: priority + assignee are PM-only; status + due date
+are PM-or-assignee.
+
+### Mark done
+
+Checking the checkbox flips the task to **Done** instantly. The title
+gets a left-to-right strikethrough animation (`strikeIn` keyframe,
+300 ms), and the whole row holds full opacity for 1 second before
+fading to muted (`opacity-50`, 700 ms ease-out). Unchecking flips back
+to **To Do**.
+
+### What still works in list mode
+
+- Filters (the shared FilterBar)
+- Quick Create (the `C` shortcut, palette action, and `+ New Task` button)
+- Global shortcuts (palette, navigation, help)
+- Task detail navigation on row click
+
+### What's kanban-only
+
+- Drag-and-drop
+- Multi-select + the bulk action bar (Ctrl/Cmd-click is a no-op in list mode)
+- Arrow / Enter / 1–4 keyboard shortcuts (they target the kanban's
+  visual focus ring, which doesn't apply to a flat list)
+
+---
+
+## Due dates
+
+A small but cross-cutting feature — every surface that talks about a
+due date now uses the same vocabulary and the same picker.
+
+### Relative date display
+
+`formatRelativeDueDate(iso)` (`src/lib/date-utils.ts`) is the single
+source of truth. It returns a `{ label, tone, overdue, diffDays }`
+shape; the `tone` maps to a CSS-variable text color via
+`DUE_TONE_CLASS`.
+
+| Date relative to today | Label | Tone | Notes |
+|---|---|---|---|
+| Past | `Overdue — N day(s)` | critical (red) | Paired with an `AlertTriangle` icon |
+| Today | `Today` | today (blue) | |
+| Tomorrow | `Tomorrow` | primary | |
+| Rest of this calendar week | day name (`Wednesday`) | primary | |
+| Anywhere in next calendar week | `Next [day]` (`Next Tuesday`) | primary | |
+| Beyond next week | `Jun 15` (locale `month short` + day) | secondary | |
+| `null` | _(nothing)_ | — | The card / row renders no chip at all |
+
+The board's task cards, the list view's Due column, the My Tasks
+queue, and the task-detail Due field all consume this helper, so
+"Wednesday" means the same thing everywhere.
+
+### Seven canonical presets
+
+`DUE_DATE_PRESETS` exports the same set used by every picker:
+
+`Today` · `Tomorrow` · `Next Monday` · `Next Friday` · `In 1 week` ·
+`In 2 weeks` · `No date`
+
+"Next Monday" / "Next Friday" are always at least one day in the
+future — if today is Monday, "Next Monday" resolves to +7 days.
+
+The presets render as a 2-column grid above a custom date input in a
+single shared component, `src/components/shared/DueDatePicker.tsx`.
+The Quick Create modal, the bulk action bar's "Set Due Date" menu, the
+list view's inline edit cell, and the task-detail Due Date field all
+mount the same component — so adding a new preset is one edit in one
+file.
+
+### Overdue affordances
+
+Each page that surfaces tasks calls out overdue ones differently,
+chosen for the layout's information density:
+
+| Surface | Treatment |
+|---|---|
+| Board (kanban) | 2px red left border on each overdue card; "Overdue — N days" chip with an `AlertTriangle` icon |
+| My Tasks | 5% red background tint behind the row; same chip in the badge row |
+| List view | Due cell text rendered in red with the `AlertTriangle` icon |
+| Dashboard | The Overdue summary card pulses (subtle red box-shadow, 5s cycle) when its count > 0 |
+| Task detail | Due-date button gets a red left border when overdue |
+
+Completed tasks are never read as overdue, even when their stored due
+date is in the past — the urgency drops the moment status flips to
+**Done**.
+
+### Daily Discord digest
+
+When the user first lands on an authenticated page, `Layout` checks:
+
+1. Is a Discord webhook URL configured?
+2. Is the **Task overdue** event toggle enabled in Settings?
+3. Are there any overdue tasks right now?
+4. Has the digest already been sent this session?
+   (sessionStorage flag `team-manager.overdue-summary-sent`)
+
+If all four hold, a single embed fires (`buildOverdueSummaryEmbed`):
+
+```
+⚠️ Overdue Tasks Summary
+N tasks are overdue
+  • [Task Title] — Assigned to [Name] · [N] days overdue
+  • … (up to 10 fields; the description count reflects the real total)
+```
+
+The flag clears when the tab closes, so opening the app fresh the
+next day re-sends. For an actual daily cadence with multiple users you
+still want the production backend proxy — see
+[Discord integration](#discord-integration).
 
 ---
 

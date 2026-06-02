@@ -167,3 +167,31 @@
     background: var(--border-default);
   }
 }
+
+/* Brief background flash used by inline-edit cells in the list view to
+   confirm an optimistic update. Settles back to transparent in 600ms. */
+@keyframes cellFlash {
+  0%   { background-color: color-mix(in srgb, var(--accent-primary) 22%, transparent); }
+  100% { background-color: transparent; }
+}
+
+/* Strikethrough that paints in from left to right when a list-view row is
+   marked done via its checkbox. Pseudo-element grows over 300ms. */
+@keyframes strikeIn {
+  from { width: 0; }
+  to   { width: 100%; }
+}
+
+/* Subtle attention pulse used by the Dashboard's Overdue summary card when
+   the count is > 0. 5-second cycle, low-intensity shadow grow then settle. */
+@keyframes pulseOverdue {
+  0%, 100% {
+    box-shadow: 0 0 0 0 color-mix(in srgb, var(--priority-critical) 0%, transparent);
+  }
+  10% {
+    box-shadow: 0 0 0 6px color-mix(in srgb, var(--priority-critical) 22%, transparent);
+  }
+  30% {
+    box-shadow: 0 0 0 0 color-mix(in srgb, var(--priority-critical) 0%, transparent);
+  }
+}

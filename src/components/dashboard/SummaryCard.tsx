@@ -7,6 +7,11 @@ interface SummaryCardProps {
   value: number
   /** When true and value > 0, render the number in the critical/red color. */
   highlightWhenPositive?: boolean
+  /**
+   * When true and value > 0, run a subtle red box-shadow pulse every 5s to
+   * draw the eye. Used by the Overdue card on the Dashboard.
+   */
+  pulseWhenPositive?: boolean
 }
 
 export function SummaryCard({
@@ -14,10 +19,17 @@ export function SummaryCard({
   label,
   value,
   highlightWhenPositive = false,
+  pulseWhenPositive = false,
 }: SummaryCardProps) {
   const highlight = highlightWhenPositive && value > 0
+  const pulse = pulseWhenPositive && value > 0
   return (
-    <div className="rounded-lg border border-[var(--border-subtle)] bg-[var(--bg-surface)] p-4 transition-colors hover:border-[var(--border-default)] md:p-5">
+    <div
+      className={cn(
+        'rounded-lg border border-[var(--border-subtle)] bg-[var(--bg-surface)] p-4 transition-colors hover:border-[var(--border-default)] md:p-5',
+        pulse && 'animate-[pulseOverdue_5s_ease-in-out_infinite]',
+      )}
+    >
       <Icon
         className="h-6 w-6 text-[var(--text-secondary)]"
         strokeWidth={1.75}

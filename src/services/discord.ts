@@ -336,6 +336,33 @@ export function buildBulkUpdateEmbed(args: {
   }
 }
 
+/**
+ * Daily overdue digest. Lists up to 10 overdue tasks; if there are more,
+ * the description still reports the full count so the channel sees the real
+ * pressure even when the embed truncates.
+ */
+export function buildOverdueSummaryEmbed(args: {
+  overdueTasks: Array<{
+    task: Task
+    assigneeName: string
+    daysOverdue: number
+  }>
+}): DiscordEmbed {
+  const total = args.overdueTasks.length
+  const limited = args.overdueTasks.slice(0, 10)
+  return {
+    title: '⚠️ Overdue Tasks Summary',
+    description: `${total} task${total === 1 ? ' is' : 's are'} overdue`,
+    color: 15_548_997, // red
+    fields: limited.map(({ task, assigneeName, daysOverdue }) => ({
+      name: task.title,
+      value: `Assigned to ${assigneeName} · ${daysOverdue} ${daysOverdue === 1 ? 'day' : 'days'} overdue`,
+      inline: false,
+    })),
+    timestamp: new Date().toISOString(),
+  }
+}
+
 /** Sample embed used by the "Test webhook" button in Settings. */
 export function buildTestEmbed(workspaceName: string): DiscordEmbed {
   return {

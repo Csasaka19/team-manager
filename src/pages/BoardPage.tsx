@@ -21,10 +21,13 @@ import {
   type BoardFilters,
 } from '@/components/board/FilterBar'
 import { TaskCard, type SelectModifiers } from '@/components/board/TaskCard'
+import { TaskListView } from '@/components/board/TaskListView'
+import { ViewToggle } from '@/components/board/ViewToggle'
 import { ConfirmModal } from '@/components/shared/ConfirmModal'
 import { useAuth } from '@/data/auth'
 import { useData } from '@/data/store'
 import { useKeyboardShortcuts } from '@/hooks/useKeyboardShortcuts'
+import { loadBoardView, saveBoardView, type BoardView } from '@/lib/board-view'
 import type { LayoutOutletContext } from '@/components/layout/Layout'
 import type { Priority, Task, TaskStatus } from '@/data/types'
 
@@ -49,6 +52,12 @@ export default function BoardPage() {
   } = useData()
   const [searchParams] = useSearchParams()
   const { openCreateTask } = useOutletContext<LayoutOutletContext>()
+
+  const [view, setViewState] = useState<BoardView>(() => loadBoardView())
+  const setView = useCallback((next: BoardView) => {
+    setViewState(next)
+    saveBoardView(next)
+  }, [])
 
   const [filters, setFilters] = useState<BoardFilters>(emptyFilters)
   const [activeDragId, setActiveDragId] = useState<string | null>(null)
@@ -350,41 +359,40 @@ export default function BoardPage() {
     }
   }
 
-  useKeyboardShortcuts([
-    {
-      key: 'Escape',
-      handler: () => {
-        if (selectionActive) clearBulkSelection()
+  // Kanban-specific shortcuts (arrow nav, Enter open, 1-4 priority, Esc to
+  // clear bulk select). Disabled in list view, where rows are tab-focusable
+  // and the visual selection model doesn't apply.
+  useKeyboardShortcuts(
+    [
+      {
+        key: 'Escape',
+        handler: () => {
+          if (selectionActive) clearBulkSelection()
+        },
       },
-    },
-    {
-      key: 'ArrowLeft',
-      handler: () => moveSelection('left'),
-    },
-    {
-      key: 'ArrowRight',
-      handler: () => moveSelection('right'),
-    },
-    {
-      key: 'ArrowUp',
-      handler: () => moveSelection('up'),
-    },
-    {
-      key: 'ArrowDown',
-      handler: () => moveSelection('down'),
-    },
-    {
-      key: 'Enter',
-      handler: openSelected,
-    },
-    {
-      key: ['1', '2', '3', '4'],
-      handler: (e) => {
-        const p = PRIORITY_BY_KEY[e.key]
-        if (p) setPriorityForSelected(p)
+      { key: 'ArrowLeft', handler: () => moveSelection('left') },
+      { key: 'ArrowRight', handler: () => moveSelection('right') },
+      { key: 'ArrowUp', handler: () => moveSelection('up') },
+      { key: 'ArrowDown', handler: () => moveSelection('down') },
+      { key: 'Enter', handler: openSelected },
+      {
+        key: ['1', '2', '3', '4'],
+        handler: (e) => {
+          const p = PRIORITY_BY_KEY[e.key]
+          if (p) setPriorityForSelected(p)
+        },
       },
-    },
-  ])
+    ],
+    view === 'kanban',
+  )
+
+  // Switching views drops any in-flight bulk selection — the visual cue
+  // (blue ring on a card) only exists in kanban, and bulk actions on
+  // invisible selections are confusing.
+  useEffect(() => {
+    if (bulkSelection.size > 0) clearBulkSelection()
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [view])
 
   const hasAnyTasks = tasks.length > 0
   const filtersActive = hasActiveFilters(filters)
@@ -403,20 +411,23 @@ export default function BoardPage() {
             Drag cards between columns to update status.
           </p>
         </div>
-        {isPM && projects.some((p) => !p.archived) && (
-          <button
-            type="button"
-            onClick={() =>
-              openCreateTask(
-                filters.projectId !== 'all' ? filters.projectId : undefined,
-              )
-            }
-            className="inline-flex h-9 items-center gap-1.5 rounded-md bg-[var(--accent-primary)] px-4 text-sm font-medium text-[var(--text-inverse)] transition-colors hover:bg-[var(--accent-hover)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent-focus)]"
-          >
-            <Plus className="h-4 w-4" aria-hidden="true" />
-            New Task
-          </button>
-        )}
+        <div className="flex items-center gap-2">
+          <ViewToggle value={view} onChange={setView} />
+          {isPM && projects.some((p) => !p.archived) && (
+            <button
+              type="button"
+              onClick={() =>
+                openCreateTask(
+                  filters.projectId !== 'all' ? filters.projectId : undefined,
+                )
+              }
+              className="inline-flex h-9 items-center gap-1.5 rounded-md bg-[var(--accent-primary)] px-4 text-sm font-medium text-[var(--text-inverse)] transition-colors hover:bg-[var(--accent-hover)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent-focus)]"
+            >
+              <Plus className="h-4 w-4" aria-hidden="true" />
+              New Task
+            </button>
+          )}
+        </div>
       </header>
 
       <FilterBar
@@ -430,6 +441,12 @@ export default function BoardPage() {
         <EmptyBoard />
       ) : filtersMatchNothing ? (
         <NoMatches onClear={() => setFilters(emptyFilters())} />
+      ) : view === 'list' ? (
+        <TaskListView
+          tasks={filteredTasks}
+          projects={projects}
+          members={teamMembers}
+        />
       ) : (
         <DndContext
           sensors={sensors}

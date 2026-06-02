@@ -1,11 +1,11 @@
-import { Check } from 'lucide-react'
+import { AlertTriangle, Check } from 'lucide-react'
 import { useNavigate } from 'react-router-dom'
 import { useDraggable } from '@dnd-kit/core'
 import { CSS } from '@dnd-kit/utilities'
 import { Avatar } from '@/components/shared/Avatar'
 import { PriorityBadge } from '@/components/shared/PriorityBadge'
 import { cn } from '@/lib/utils'
-import { isOverdue, now } from '@/lib/date-utils'
+import { DUE_TONE_CLASS, formatRelativeDueDate } from '@/lib/date-utils'
 import type { Project, Task, TeamMember } from '@/data/types'
 
 export interface SelectModifiers {
@@ -59,8 +59,10 @@ export function TaskCard({
 
   const completed = task.subtasks.filter((s) => s.done).length
   const total = task.subtasks.length
-  const overdue = task.status !== 'done' && isOverdue(task.dueDate)
-  const due = formatDueLabel(task.dueDate)
+  const due = formatRelativeDueDate(task.dueDate)
+  // Done tasks never read as "overdue" even if their due date is past —
+  // the work is finished, the urgency is irrelevant.
+  const overdue = task.status !== 'done' && (due?.overdue ?? false)
 
   const handleClick = (e: React.MouseEvent) => {
     if (overlay) return
@@ -124,6 +126,9 @@ export function TaskCard({
         'group relative select-none rounded-lg border border-[var(--border-subtle)] bg-[var(--bg-surface)] p-3 text-left transition-[border-color,box-shadow] duration-150',
         'hover:border-[var(--border-default)] hover:shadow-[0_2px_8px_rgba(0,0,0,0.2)]',
         'focus-visible:border-[var(--accent-primary)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent-focus)]',
+        // Subtle 2px red left border when overdue. Beats the regular border
+        // so it stays visible even when the card is also selected / focused.
+        overdue && 'border-l-2 border-l-[var(--priority-critical)]',
         selected && 'border-[var(--accent-primary)] ring-2 ring-[var(--accent-focus)]',
         bulkSelected &&
           'border-[var(--accent-primary)] ring-2 ring-[var(--accent-primary)]',
@@ -163,13 +168,16 @@ export function TaskCard({
         {due && (
           <span
             className={cn(
-              'inline-flex items-center rounded px-2 py-0.5 text-[11px] font-medium',
+              'inline-flex items-center gap-1 rounded px-2 py-0.5 text-[11px] font-medium',
               overdue
                 ? 'bg-[color-mix(in_srgb,var(--priority-critical)_15%,transparent)] text-[var(--priority-critical)]'
-                : 'text-[var(--text-secondary)]',
+                : DUE_TONE_CLASS[due.tone],
             )}
           >
-            {overdue ? 'Overdue' : due}
+            {overdue && (
+              <AlertTriangle className="h-3 w-3" aria-hidden="true" />
+            )}
+            {due.label}
           </span>
         )}
       </div>
@@ -209,21 +217,3 @@ export function TaskCard({
   )
 }
 
-function formatDueLabel(dueDate: string | null): string | null {
-  if (!dueDate) return null
-  const due = new Date(dueDate)
-  const today = now()
-  const todayMid = new Date(today)
-  todayMid.setHours(0, 0, 0, 0)
-  const dueMid = new Date(due)
-  dueMid.setHours(0, 0, 0, 0)
-  const diffDays = Math.round((dueMid.getTime() - todayMid.getTime()) / 86_400_000)
-
-  if (diffDays === 0) return 'Today'
-  if (diffDays === 1) return 'Tomorrow'
-  if (diffDays === -1) return 'Yesterday'
-  if (diffDays > 1 && diffDays < 7) {
-    return due.toLocaleDateString(undefined, { weekday: 'short' })
-  }
-  return due.toLocaleDateString(undefined, { month: 'short', day: 'numeric' })
-}

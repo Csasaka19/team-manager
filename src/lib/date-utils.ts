@@ -60,6 +60,140 @@ export function isInThisWeek(date: string | null): boolean {
   return t >= startOfWeek().getTime() && t <= endOfWeek().getTime()
 }
 
+/** Visual tone for the relative due-date label. Consumers map to a color. */
+export type DueDateTone = 'today' | 'critical' | 'primary' | 'secondary'
+
+export interface RelativeDueDate {
+  /** Human label — e.g. "Today", "Overdue — 3 days", "Wednesday", "Jun 15". */
+  label: string
+  tone: DueDateTone
+  /** True when the date is in the past (and the task isn't done — caller decides). */
+  overdue: boolean
+  /** Days from today (negative = past). 0 = today, 1 = tomorrow. */
+  diffDays: number
+}
+
+/**
+ * Resolve a stored `YYYY-MM-DD` date into its display form.
+ *
+ * Returns `null` when the input is `null` — callers should render nothing in
+ * that case (no "No date" placeholder, per the design spec).
+ *
+ * Buckets (relative to today):
+ * - Past → "Overdue — N day(s)", tone: critical
+ * - Today (0) → "Today", tone: today
+ * - Tomorrow (1) → "Tomorrow", tone: primary
+ * - Rest of this calendar week → day name ("Wednesday"), tone: primary
+ * - Next calendar week → "Next [day]" ("Next Wednesday"), tone: primary
+ * - 14+ days OR beyond next week → "Mon DD" ("Jun 15"), tone: secondary
+ */
+export function formatRelativeDueDate(
+  iso: string | null,
+): RelativeDueDate | null {
+  if (!iso) return null
+  const due = asDate(iso)
+  const diffDays = daysBetween(now(), due)
+
+  if (diffDays < 0) {
+    const n = Math.abs(diffDays)
+    return {
+      label: `Overdue — ${n} ${n === 1 ? 'day' : 'days'}`,
+      tone: 'critical',
+      overdue: true,
+      diffDays,
+    }
+  }
+  if (diffDays === 0) {
+    return { label: 'Today', tone: 'today', overdue: false, diffDays }
+  }
+  if (diffDays === 1) {
+    return { label: 'Tomorrow', tone: 'primary', overdue: false, diffDays }
+  }
+
+  // Calendar-week boundaries — Mon 00:00 of the current week.
+  const weekStart = startOfWeek().getTime()
+  const nextWeekStart = weekStart + 7 * 86_400_000
+  const weekAfterStart = weekStart + 14 * 86_400_000
+  const dueTime = startOfDay(due).getTime()
+
+  if (dueTime < nextWeekStart) {
+    return {
+      label: due.toLocaleDateString(undefined, { weekday: 'long' }),
+      tone: 'primary',
+      overdue: false,
+      diffDays,
+    }
+  }
+  if (dueTime < weekAfterStart) {
+    return {
+      label: `Next ${due.toLocaleDateString(undefined, { weekday: 'long' })}`,
+      tone: 'primary',
+      overdue: false,
+      diffDays,
+    }
+  }
+
+  return {
+    label: due.toLocaleDateString(undefined, { month: 'short', day: 'numeric' }),
+    tone: 'secondary',
+    overdue: false,
+    diffDays,
+  }
+}
+
+/** Map a `DueDateTone` to a CSS-variable-backed text color class. */
+export const DUE_TONE_CLASS: Record<DueDateTone, string> = {
+  today: 'text-[var(--accent-primary)]',
+  critical: 'text-[var(--priority-critical)]',
+  primary: 'text-[var(--text-primary)]',
+  secondary: 'text-[var(--text-secondary)]',
+}
+
+// ---- Preset helpers (shared by every due-date picker) -----------------------
+
+function addDays(d: Date, days: number): Date {
+  const r = new Date(d)
+  r.setDate(r.getDate() + days)
+  return r
+}
+
+/** Next occurrence of `weekday` strictly in the future (1 = Mon, 5 = Fri). */
+export function nextDayOfWeek(weekday: 1 | 2 | 3 | 4 | 5 | 6 | 0): Date {
+  const today = now()
+  const current = today.getDay()
+  let diff = weekday - current
+  if (diff <= 0) diff += 7
+  return addDays(today, diff)
+}
+
+/** Stable `YYYY-MM-DD` formatter — same convention the date picker stores. */
+export function formatYYYYMMDD(d: Date): string {
+  const yyyy = d.getFullYear()
+  const mm = String(d.getMonth() + 1).padStart(2, '0')
+  const dd = String(d.getDate()).padStart(2, '0')
+  return `${yyyy}-${mm}-${dd}`
+}
+
+export interface DueDatePreset {
+  label: string
+  /** Resolved at click-time so the value always reflects today's `now()`. */
+  resolve: () => string | null
+}
+
+/**
+ * Seven canonical presets used everywhere a due date can be picked. Callers
+ * render these as a button row above the custom calendar input.
+ */
+export const DUE_DATE_PRESETS: DueDatePreset[] = [
+  { label: 'Today', resolve: () => formatYYYYMMDD(now()) },
+  { label: 'Tomorrow', resolve: () => formatYYYYMMDD(addDays(now(), 1)) },
+  { label: 'Next Monday', resolve: () => formatYYYYMMDD(nextDayOfWeek(1)) },
+  { label: 'Next Friday', resolve: () => formatYYYYMMDD(nextDayOfWeek(5)) },
+  { label: 'In 1 week', resolve: () => formatYYYYMMDD(addDays(now(), 7)) },
+  { label: 'In 2 weeks', resolve: () => formatYYYYMMDD(addDays(now(), 14)) },
+  { label: 'No date', resolve: () => null },
+]
+
 /** "just now" / "12m ago" / "3h ago" / "yesterday" / "3d ago" / "May 8". */
 export function relativeTime(iso: string): string {
   const then = asDate(iso).getTime()

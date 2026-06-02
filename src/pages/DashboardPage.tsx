@@ -68,6 +68,7 @@ export default function DashboardPage() {
             label="Overdue"
             value={summary.overdue}
             highlightWhenPositive
+            pulseWhenPositive
           />
           <SummaryCard icon={Calendar} label="Due This Week" value={summary.dueThisWeek} />
           <SummaryCard

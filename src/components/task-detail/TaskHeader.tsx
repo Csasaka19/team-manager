@@ -1,8 +1,13 @@
 import { useEffect, useRef, useState } from 'react'
-import { Trash2 } from 'lucide-react'
+import { Calendar, Trash2 } from 'lucide-react'
 import { Avatar } from '@/components/shared/Avatar'
+import { DueDatePicker } from '@/components/shared/DueDatePicker'
 import { cn } from '@/lib/utils'
-import { relativeTime } from '@/lib/date-utils'
+import {
+  DUE_TONE_CLASS,
+  formatRelativeDueDate,
+  relativeTime,
+} from '@/lib/date-utils'
 import {
   PRIORITY_LABELS,
   STATUS_LABELS,
@@ -207,16 +212,11 @@ export function TaskHeader({
         </Field>
 
         <Field label="Due date">
-          <input
-            id="task-due-date"
-            type="date"
-            aria-label="Due date"
-            value={task.dueDate ?? ''}
+          <DueDateField
+            value={task.dueDate}
             disabled={!canChangeDueDate}
-            onChange={(e) =>
-              onChangeDueDate(e.target.value === '' ? null : e.target.value)
-            }
-            className={SELECT_CLASS}
+            done={task.status === 'done'}
+            onChange={onChangeDueDate}
           />
         </Field>
       </dl>
@@ -243,6 +243,96 @@ function Field({ label, children }: { label: string; children: React.ReactNode }
         {label}
       </dt>
       <dd>{children}</dd>
+    </div>
+  )
+}
+
+/**
+ * Click-to-open popover wrapping the shared DueDatePicker. Keeps the
+ * `task-due-date` element id so the `D` keyboard shortcut on the task
+ * detail page still focuses (and reveals) this control.
+ */
+function DueDateField({
+  value,
+  disabled,
+  done,
+  onChange,
+}: {
+  value: string | null
+  disabled: boolean
+  done: boolean
+  onChange: (next: string | null) => void
+}) {
+  const [open, setOpen] = useState(false)
+  const containerRef = useRef<HTMLDivElement>(null)
+
+  useEffect(() => {
+    if (!open) return
+    const onDocClick = (e: MouseEvent) => {
+      if (!containerRef.current?.contains(e.target as Node)) setOpen(false)
+    }
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') setOpen(false)
+    }
+    document.addEventListener('mousedown', onDocClick)
+    document.addEventListener('keydown', onKey)
+    return () => {
+      document.removeEventListener('mousedown', onDocClick)
+      document.removeEventListener('keydown', onKey)
+    }
+  }, [open])
+
+  const due = formatRelativeDueDate(value)
+  const tone = done && due?.tone === 'critical' ? 'secondary' : due?.tone
+  const overdue = !done && (due?.overdue ?? false)
+
+  return (
+    <div ref={containerRef} className="relative">
+      <button
+        id="task-due-date"
+        type="button"
+        aria-label={due ? `Due ${due.label} — click to change` : 'Set due date'}
+        aria-haspopup="dialog"
+        aria-expanded={open}
+        disabled={disabled}
+        onClick={() => setOpen((o) => !o)}
+        className={cn(
+          'inline-flex h-9 w-full items-center justify-between gap-2 rounded-md border border-[var(--border-subtle)] bg-[var(--bg-input)] px-3 text-sm outline-none transition-colors focus:border-[var(--accent-primary)] focus:ring-2 focus:ring-[var(--accent-focus)] disabled:cursor-not-allowed disabled:opacity-60',
+          overdue && 'border-l-[3px] border-l-[var(--priority-critical)]',
+        )}
+      >
+        <span className="inline-flex items-center gap-2">
+          <Calendar
+            className="h-3.5 w-3.5 text-[var(--text-secondary)]"
+            aria-hidden="true"
+          />
+          <span
+            className={cn(
+              due
+                ? tone
+                  ? DUE_TONE_CLASS[tone]
+                  : 'text-[var(--text-primary)]'
+                : 'text-[var(--text-muted)]',
+            )}
+          >
+            {due ? due.label : 'Set due date'}
+          </span>
+        </span>
+      </button>
+
+      {open && (
+        <div
+          role="dialog"
+          aria-label="Due date"
+          className="absolute left-0 top-full z-20 mt-1 w-64 rounded-md border border-[var(--border-default)] bg-[var(--bg-elevated)] shadow-[0_4px_16px_rgba(0,0,0,0.3)]"
+        >
+          <DueDatePicker
+            value={value}
+            onChange={onChange}
+            onClose={() => setOpen(false)}
+          />
+        </div>
+      )}
     </div>
   )
 }

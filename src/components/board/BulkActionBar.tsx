@@ -12,8 +12,8 @@ import {
   type LucideIcon,
 } from 'lucide-react'
 import { Avatar } from '@/components/shared/Avatar'
+import { DueDatePicker } from '@/components/shared/DueDatePicker'
 import { cn } from '@/lib/utils'
-import { now } from '@/lib/date-utils'
 import {
   PRIORITY_LABELS,
   type Priority,
@@ -325,68 +325,17 @@ function DueDateMenu({
 }: {
   onPick: (dueDate: string | null) => void
 }) {
-  const presets: Array<{ label: string; value: string | null }> = [
-    { label: 'Today', value: formatYYYYMMDD(now()) },
-    { label: 'Tomorrow', value: formatYYYYMMDD(addDays(now(), 1)) },
-    { label: 'Next week', value: formatYYYYMMDD(addDays(now(), 7)) },
-    { label: 'No date', value: null },
-  ]
-
   return (
     <ActionMenu label="Set Due Date" icon={Calendar}>
       {(close) => (
-        <>
-          {presets.map((preset) => (
-            <MenuRow
-              key={preset.label}
-              onClick={() => {
-                onPick(preset.value)
-                close()
-              }}
-            >
-              <span className="text-sm">{preset.label}</span>
-              {preset.value && (
-                <span className="ml-auto text-[10px] tabular-nums text-[var(--text-muted)]">
-                  {new Date(preset.value).toLocaleDateString(undefined, {
-                    month: 'short',
-                    day: 'numeric',
-                  })}
-                </span>
-              )}
-            </MenuRow>
-          ))}
-          <div
-            className="my-1 h-px bg-[var(--border-subtle)]"
-            aria-hidden="true"
+        <div className="w-60">
+          <DueDatePicker
+            value={null}
+            onChange={onPick}
+            onClose={close}
           />
-          <label className="block px-3 py-2">
-            <span className="block pb-1 text-[10px] font-semibold uppercase tracking-[0.5px] text-[var(--text-muted)]">
-              Custom
-            </span>
-            <input
-              type="date"
-              onChange={(e) => {
-                onPick(e.target.value === '' ? null : e.target.value)
-                close()
-              }}
-              className="h-8 w-full rounded border border-[var(--border-subtle)] bg-[var(--bg-input)] px-2 text-xs text-[var(--text-primary)] outline-none focus:border-[var(--accent-primary)]"
-            />
-          </label>
-        </>
+        </div>
       )}
     </ActionMenu>
   )
-}
-
-function formatYYYYMMDD(d: Date): string {
-  const yyyy = d.getFullYear()
-  const mm = String(d.getMonth() + 1).padStart(2, '0')
-  const dd = String(d.getDate()).padStart(2, '0')
-  return `${yyyy}-${mm}-${dd}`
-}
-
-function addDays(d: Date, days: number): Date {
-  const r = new Date(d)
-  r.setDate(r.getDate() + days)
-  return r
 }
