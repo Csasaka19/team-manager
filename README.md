@@ -32,6 +32,7 @@ required to demo. Drop in a real API later and the UI doesn't need to change.
 - [Task templates](#task-templates)
 - [Subtasks](#subtasks)
 - [PM dashboard](#pm-dashboard)
+- [Data export](#data-export)
 - [Polish & a11y](#polish--a11y)
 - [Bulk actions](#bulk-actions)
 - [Board view modes](#board-view-modes)
@@ -709,6 +710,41 @@ in the regular board / list views.
 - `src/components/dashboard/WeekTimeline.tsx` (column grid + day cells)
 - `src/pages/DashboardPage.tsx` (composition + persisted activity
   filter / paginate controls slot into the Activity section)
+
+---
+
+## Data export
+
+PMs can pull task / project / team data out of the workspace as CSV.
+No backend involved — `src/lib/csv-export.ts` builds an RFC 4180
+quoted string and `downloadCSV(filename, csv)` triggers a Blob-backed
+browser download with a UTF-8 BOM so Excel opens the file with the
+right encoding.
+
+### Where to find it
+
+- **Projects page** → `Export` dropdown next to **+ New Project** (PM only):
+  - *Export all tasks (CSV)*
+  - *Export project summary (CSV)*
+- **Team page** → `Export team report` button next to **Invite Member**
+  (PM only).
+
+### Columns
+
+| Export | Columns |
+|---|---|
+| All tasks | Task Title · Project · Status · Priority · Assignee · Due Date · Subtasks Total · Subtasks Complete · Created Date · Tags |
+| Project summary | Project Name · Total Tasks · Open · In Progress · In Review · Done · Overdue · Completion Percentage |
+| Team report | Team Member · Role · Active Tasks · Completed This Week · Completed This Month |
+
+**This Week** = current Mon–Sun (matches the dashboard buckets).
+**This Month** = since the 1st of the current calendar month relative
+to the demo `now()` (2026-05-22). Both windows shift with the clock
+when a real one replaces `now()`.
+
+Filenames stamp the demo date: `team-manager-tasks-2026-05-22.csv`,
+`team-manager-projects-...`, `team-manager-team-...`. A
+`toast.success("Exported <filename>")` confirms each download.
 
 ---
 

@@ -1,6 +1,11 @@
 import { useMemo, useState } from 'react'
-import { UserPlus, Users } from 'lucide-react'
+import { Download, UserPlus, Users } from 'lucide-react'
 import { toast } from 'sonner'
+import {
+  buildTeamReportCSV,
+  downloadCSV,
+  filenameDateStamp,
+} from '@/lib/csv-export'
 import { ConfirmModal } from '@/components/shared/ConfirmModal'
 import { InviteMemberModal } from '@/components/team/InviteMemberModal'
 import { TeamMemberCard } from '@/components/team/TeamMemberCard'
@@ -73,14 +78,29 @@ export default function TeamPage() {
           </p>
         </div>
         {isPM && (
-          <button
-            type="button"
-            onClick={() => setInviteOpen(true)}
-            className="inline-flex h-9 items-center gap-1.5 rounded-md bg-[var(--accent-primary)] px-4 text-sm font-medium text-[var(--text-inverse)] transition-colors hover:bg-[var(--accent-hover)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent-focus)]"
-          >
-            <UserPlus className="h-4 w-4" aria-hidden="true" />
-            Invite Member
-          </button>
+          <div className="flex items-center gap-2">
+            <button
+              type="button"
+              onClick={() => {
+                const csv = buildTeamReportCSV({ members: teamMembers, tasks })
+                const filename = `team-manager-team-${filenameDateStamp()}.csv`
+                downloadCSV(filename, csv)
+                toast.success(`Exported ${filename}`)
+              }}
+              className="inline-flex h-9 items-center gap-1.5 rounded-md border border-[var(--border-default)] bg-transparent px-3 text-sm font-medium text-[var(--text-primary)] transition-colors hover:bg-[var(--bg-elevated)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent-focus)]"
+            >
+              <Download className="h-3.5 w-3.5" aria-hidden="true" />
+              Export team report
+            </button>
+            <button
+              type="button"
+              onClick={() => setInviteOpen(true)}
+              className="inline-flex h-9 items-center gap-1.5 rounded-md bg-[var(--accent-primary)] px-4 text-sm font-medium text-[var(--text-inverse)] transition-colors hover:bg-[var(--accent-hover)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent-focus)]"
+            >
+              <UserPlus className="h-4 w-4" aria-hidden="true" />
+              Invite Member
+            </button>
+          </div>
         )}
       </header>
 

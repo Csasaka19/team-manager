@@ -3,6 +3,7 @@ import { useSearchParams } from 'react-router-dom'
 import { FolderOpen, Plus } from 'lucide-react'
 import { toast } from 'sonner'
 import { ConfirmModal } from '@/components/shared/ConfirmModal'
+import { ExportMenu } from '@/components/projects/ExportMenu'
 import { ProjectCard } from '@/components/projects/ProjectCard'
 import {
   ProjectFormModal,
@@ -104,14 +105,17 @@ export default function ProjectsPage() {
           </p>
         </div>
         {isPM && (
-          <button
-            type="button"
-            onClick={() => setCreateOpen(true)}
-            className="inline-flex h-9 items-center gap-1.5 rounded-md bg-[var(--accent-primary)] px-4 text-sm font-medium text-[var(--text-inverse)] transition-colors hover:bg-[var(--accent-hover)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent-focus)]"
-          >
-            <Plus className="h-4 w-4" aria-hidden="true" />
-            New Project
-          </button>
+          <div className="flex items-center gap-2">
+            <ExportMenu />
+            <button
+              type="button"
+              onClick={() => setCreateOpen(true)}
+              className="inline-flex h-9 items-center gap-1.5 rounded-md bg-[var(--accent-primary)] px-4 text-sm font-medium text-[var(--text-inverse)] transition-colors hover:bg-[var(--accent-hover)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent-focus)]"
+            >
+              <Plus className="h-4 w-4" aria-hidden="true" />
+              New Project
+            </button>
+          </div>
         )}
       </header>
 
