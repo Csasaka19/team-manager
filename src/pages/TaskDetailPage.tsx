@@ -163,7 +163,12 @@ export default function TaskDetailPage() {
           canPMEdit || s.assigneeId === currentUser?.id
         }
         onCreate={async (title) => {
-          await safeUpdate('subtask', () => createSubtask(task.id, title))
+          try {
+            return await createSubtask(task.id, title)
+          } catch {
+            toast.error('Could not save subtask.')
+            return null
+          }
         }}
         onToggle={(subtaskId) =>
           safeUpdate('subtask', () => toggleSubtask(task.id, subtaskId))

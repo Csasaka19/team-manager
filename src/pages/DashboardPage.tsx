@@ -7,7 +7,10 @@ import {
   FolderOpen,
   LayoutGrid,
 } from 'lucide-react'
+import { CollapsibleSection } from '@/components/dashboard/CollapsibleSection'
+import { ProjectsGlance } from '@/components/dashboard/ProjectsGlance'
 import { SummaryCard } from '@/components/dashboard/SummaryCard'
+import { WeekTimeline } from '@/components/dashboard/WeekTimeline'
 import {
   NeedsAttention,
   type AttentionItem,
@@ -91,7 +94,7 @@ export default function DashboardPage() {
         </p>
       </header>
 
-      <section aria-label="Summary">
+      <CollapsibleSection id="summary" title="Summary">
         <div className="grid grid-cols-1 gap-3 md:grid-cols-2 md:gap-4 lg:grid-cols-4">
           <SummaryCard icon={LayoutGrid} label="Open Tasks" value={summary.open} />
           <SummaryCard
@@ -108,26 +111,32 @@ export default function DashboardPage() {
             value={summary.completedThisWeek}
           />
         </div>
-      </section>
+      </CollapsibleSection>
 
-      <section aria-labelledby="needs-attention-heading">
-        <h2
-          id="needs-attention-heading"
-          className="mb-3 text-lg font-semibold text-[var(--text-primary)]"
-        >
-          Needs Attention
-        </h2>
+      <CollapsibleSection
+        id="projects-glance"
+        title="Projects at a Glance"
+        subtitle="Health across every active project — click a card to filter the board."
+      >
+        <ProjectsGlance projects={projects} tasks={tasks} />
+      </CollapsibleSection>
+
+      <CollapsibleSection
+        id="week-timeline"
+        title="This Week"
+        subtitle="Tasks due each day, Mon–Sun."
+      >
+        <WeekTimeline tasks={tasks} members={teamMembers} />
+      </CollapsibleSection>
+
+      <CollapsibleSection id="needs-attention" title="Needs Attention">
         <NeedsAttention items={attention} />
-      </section>
+      </CollapsibleSection>
 
-      <section aria-labelledby="activity-heading">
-        <div className="mb-3 flex flex-wrap items-center justify-between gap-3">
-          <h2
-            id="activity-heading"
-            className="text-lg font-semibold text-[var(--text-primary)]"
-          >
-            This Week&apos;s Activity
-          </h2>
+      <CollapsibleSection
+        id="activity"
+        title="This Week's Activity"
+        controls={
           <label className="inline-flex items-center gap-2 text-xs text-[var(--text-secondary)]">
             <span className="sr-only">Filter activity</span>
             <select
@@ -146,7 +155,8 @@ export default function DashboardPage() {
               ))}
             </select>
           </label>
-        </div>
+        }
+      >
         <ActivityFeed
           activities={visibleActivities}
           tasks={tasks}
@@ -166,7 +176,7 @@ export default function DashboardPage() {
             </button>
           </div>
         )}
-      </section>
+      </CollapsibleSection>
     </div>
   )
 }

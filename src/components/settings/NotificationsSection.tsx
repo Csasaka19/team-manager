@@ -1,5 +1,11 @@
 import { useEffect, useState } from 'react'
+import { Volume2 } from 'lucide-react'
 import { useAuth } from '@/data/auth'
+import {
+  isNotifSoundEnabled,
+  playNotificationSound,
+  setNotifSoundEnabled,
+} from '@/lib/notification-sound'
 import { cn } from '@/lib/utils'
 
 type PrefKey =
@@ -60,10 +66,12 @@ function savePrefs(userId: string, prefs: Record<PrefKey, boolean>) {
 export function NotificationsSection() {
   const { currentUser } = useAuth()
   const [prefs, setPrefs] = useState<Record<PrefKey, boolean>>(DEFAULTS)
+  const [soundOn, setSoundOn] = useState(false)
 
   useEffect(() => {
     if (!currentUser) return
     setPrefs(loadPrefs(currentUser.id))
+    setSoundOn(isNotifSoundEnabled(currentUser.id))
   }, [currentUser])
 
   if (!currentUser) return null
@@ -74,6 +82,16 @@ export function NotificationsSection() {
       savePrefs(currentUser.id, next)
       return next
     })
+  }
+
+  const toggleSound = () => {
+    const next = !soundOn
+    setSoundOn(next)
+    setNotifSoundEnabled(currentUser.id, next)
+    // Audio is gated to a user gesture in most browsers. Enabling the toggle
+    // counts as a gesture, so we use this moment to play a confirming chime
+    // — also doubles as the "did the sound work?" preview.
+    if (next) playNotificationSound()
   }
 
   return (
@@ -105,6 +123,32 @@ export function NotificationsSection() {
             />
           </li>
         ))}
+        <li className="flex items-center justify-between gap-4 px-4 py-3">
+          <div className="min-w-0">
+            <p className="text-sm font-medium text-[var(--text-primary)]">
+              Play notification sound
+            </p>
+            <p className="text-xs text-[var(--text-secondary)]">
+              A short two-note chime when a new notification arrives. Default: off.
+            </p>
+          </div>
+          <div className="flex items-center gap-2">
+            <button
+              type="button"
+              onClick={() => playNotificationSound()}
+              aria-label="Play test sound"
+              title="Play test sound"
+              className="inline-flex h-7 w-7 items-center justify-center rounded text-[var(--text-secondary)] transition-colors hover:bg-[var(--bg-elevated)] hover:text-[var(--text-primary)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent-focus)]"
+            >
+              <Volume2 className="h-3.5 w-3.5" aria-hidden="true" />
+            </button>
+            <Toggle
+              checked={soundOn}
+              onChange={toggleSound}
+              ariaLabel="Play notification sound"
+            />
+          </div>
+        </li>
       </ul>
     </section>
   )

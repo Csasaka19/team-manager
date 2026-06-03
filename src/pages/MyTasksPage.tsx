@@ -1,7 +1,10 @@
 import { useMemo, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { CheckCircle2, Inbox } from 'lucide-react'
-import { TaskSection } from '@/components/my-tasks/TaskSection'
+import {
+  TaskSection,
+  type MyTaskEntry,
+} from '@/components/my-tasks/TaskSection'
 import { useAuth } from '@/data/auth'
 import { useData } from '@/data/store'
 import type { Project, Task } from '@/data/types'
@@ -33,9 +36,23 @@ export default function MyTasksPage() {
     [projects],
   )
 
-  const myTasks = useMemo(() => {
+  // "My tasks" pulls in both (a) tasks the user is the parent assignee of
+  // and (b) tasks where the user has a subtask assignment but isn't the
+  // parent assignee. The second case carries viaSubtaskOnly=true so the
+  // UI can render the "Subtask assigned to you" caption.
+  const myTasks = useMemo<MyTaskEntry[]>(() => {
     if (!currentUser) return []
-    return tasks.filter((t) => t.assigneeId === currentUser.id)
+    const out: MyTaskEntry[] = []
+    for (const t of tasks) {
+      if (t.assigneeId === currentUser.id) {
+        out.push({ task: t, viaSubtaskOnly: false })
+        continue
+      }
+      if (t.subtasks.some((s) => s.assigneeId === currentUser.id)) {
+        out.push({ task: t, viaSubtaskOnly: true })
+      }
+    }
+    return out
   }, [tasks, currentUser])
 
   const { dueToday, thisWeek, upcoming, completed } = useMemo(
@@ -137,75 +154,73 @@ function EmptyMyTasks() {
 }
 
 interface Buckets {
-  dueToday: Task[]
-  thisWeek: Task[]
-  upcoming: Task[]
-  completed: Task[]
+  dueToday: MyTaskEntry[]
+  thisWeek: MyTaskEntry[]
+  upcoming: MyTaskEntry[]
+  completed: MyTaskEntry[]
 }
 
-function bucketTasks(tasks: Task[]): Buckets {
+function bucketTasks(entries: MyTaskEntry[]): Buckets {
   const today = now()
   const todayMid = startOfDay(today).getTime()
   const weekStart = startOfWeek(today).getTime()
   const weekEnd = endOfWeek(today).getTime()
   const completedCutoff = todayMid - COMPLETED_WINDOW_DAYS * 86_400_000
 
-  const dueToday: Task[] = []
-  const thisWeek: Task[] = []
-  const upcoming: Task[] = []
-  const completed: Task[] = []
+  const dueToday: MyTaskEntry[] = []
+  const thisWeek: MyTaskEntry[] = []
+  const upcoming: MyTaskEntry[] = []
+  const completed: MyTaskEntry[] = []
 
-  for (const t of tasks) {
+  for (const entry of entries) {
+    const t = entry.task
     if (t.status === 'done') {
       const finishedAt = new Date(t.updatedAt).getTime()
-      if (finishedAt >= completedCutoff) completed.push(t)
+      if (finishedAt >= completedCutoff) completed.push(entry)
       continue
     }
 
     if (!t.dueDate) {
-      upcoming.push(t)
+      upcoming.push(entry)
       continue
     }
 
     const dueMid = startOfDay(new Date(t.dueDate)).getTime()
     if (dueMid === todayMid || isOverdue(t.dueDate)) {
-      // Overdue tasks float to the top of "Due Today" per spec.
-      dueToday.push(t)
+      dueToday.push(entry)
     } else if (dueMid >= weekStart && dueMid <= weekEnd) {
-      thisWeek.push(t)
+      thisWeek.push(entry)
     } else if (dueMid > weekEnd) {
-      upcoming.push(t)
+      upcoming.push(entry)
     } else {
-      // dueMid < weekStart but also not overdue → shouldn't happen, but handle gracefully.
-      upcoming.push(t)
+      upcoming.push(entry)
     }
   }
 
   // Sort: overdue first (most days overdue first), then today, then by priority.
-  dueToday.sort((a, b) => {
-    const aOver = a.dueDate && isOverdue(a.dueDate) ? daysBetween(a.dueDate, today) : 0
-    const bOver = b.dueDate && isOverdue(b.dueDate) ? daysBetween(b.dueDate, today) : 0
-    if (aOver !== bOver) return bOver - aOver
-    return PRIORITY_RANK[a.priority] - PRIORITY_RANK[b.priority]
-  })
-
-  // This week: sort by due date ascending, then priority.
-  thisWeek.sort((a, b) => {
-    const d = (a.dueDate ?? '').localeCompare(b.dueDate ?? '')
-    if (d !== 0) return d
-    return PRIORITY_RANK[a.priority] - PRIORITY_RANK[b.priority]
-  })
-
-  // Upcoming: tasks with a due date sorted by date asc; no-date tasks at the bottom.
-  upcoming.sort((a, b) => {
-    if (a.dueDate && b.dueDate) return a.dueDate.localeCompare(b.dueDate)
-    if (a.dueDate) return -1
-    if (b.dueDate) return 1
-    return PRIORITY_RANK[a.priority] - PRIORITY_RANK[b.priority]
-  })
-
-  // Completed: most recently completed first.
-  completed.sort((a, b) => b.updatedAt.localeCompare(a.updatedAt))
+  dueToday.sort((a, b) => sortByOverdueThenPriority(a.task, b.task, today))
+  thisWeek.sort((a, b) => sortByDueThenPriority(a.task, b.task))
+  upcoming.sort((a, b) => sortByDueThenPriority(a.task, b.task))
+  completed.sort((a, b) => b.task.updatedAt.localeCompare(a.task.updatedAt))
 
   return { dueToday, thisWeek, upcoming, completed }
+}
+
+function sortByOverdueThenPriority(a: Task, b: Task, today: Date): number {
+  const aOver = a.dueDate && isOverdue(a.dueDate) ? daysBetween(a.dueDate, today) : 0
+  const bOver = b.dueDate && isOverdue(b.dueDate) ? daysBetween(b.dueDate, today) : 0
+  if (aOver !== bOver) return bOver - aOver
+  return PRIORITY_RANK[a.priority] - PRIORITY_RANK[b.priority]
+}
+
+function sortByDueThenPriority(a: Task, b: Task): number {
+  if (a.dueDate && b.dueDate) {
+    const cmp = a.dueDate.localeCompare(b.dueDate)
+    if (cmp !== 0) return cmp
+  } else if (a.dueDate) {
+    return -1
+  } else if (b.dueDate) {
+    return 1
+  }
+  return PRIORITY_RANK[a.priority] - PRIORITY_RANK[b.priority]
 }

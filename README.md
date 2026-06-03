@@ -30,6 +30,8 @@ required to demo. Drop in a real API later and the UI doesn't need to change.
 - [Keyboard shortcuts](#keyboard-shortcuts)
 - [Quick Create](#quick-create)
 - [Task templates](#task-templates)
+- [Subtasks](#subtasks)
+- [PM dashboard](#pm-dashboard)
 - [Bulk actions](#bulk-actions)
 - [Board view modes](#board-view-modes)
 - [Due dates](#due-dates)
@@ -68,6 +70,17 @@ required to demo. Drop in a real API later and the UI doesn't need to change.
   Create exposes them in a "Use template" dropdown that pre-fills the
   form and materializes the subtasks on submit. See
   [Task templates](#task-templates).
+- **Subtask experience** — drag handles appear on hover for reordering,
+  a fat progress bar with `done / total (%)` overlay (and a pulse +
+  "All subtasks complete ✓" at 100%), 20px assignee avatars on every
+  row with a click-to-pick popover, Tab to chain rapid entry, and a
+  collapse toggle once more than three are checked off. Subtask
+  assignments surface in the assignee's My Tasks list with a "Subtask
+  assigned to you" caption. See [Subtasks](#subtasks).
+- **PM dashboard panels** — Projects-at-a-Glance ring widgets, a
+  Mon–Sun "This Week" column timeline, and a per-section collapse
+  state persisted to `localStorage` so each PM customizes their
+  density. See [PM dashboard](#pm-dashboard).
 - **Bulk actions on the board** — Ctrl/Cmd-click cards to multi-select,
   Shift-click to extend a range within a column, then a floating bar lets
   you set priority / assignee / due date / status, or delete, on every
@@ -540,6 +553,70 @@ The "New template" / edit modal collects:
 - **Default tags** — toggle-chips picked from the live tag list (stored
   by **name** so renamed/deleted tags degrade gracefully)
 
+## Subtasks
+
+The Task Detail page's subtask block was rebuilt for rapid editing.
+
+### Layout
+
+| Element | Notes |
+|---|---|
+| **Drag handle** | `GripVertical` on the left, hidden by default and revealed on row hover. Drag-and-drop via `@dnd-kit/sortable`; reorders persist via `reorderSubtasks` in the store. |
+| **Checkbox** | Toggles `done`. |
+| **Assignee** | 20px Avatar button (or a dashed `User+` placeholder when unassigned). Click opens a popover with Unassigned + every team member. Independent from the parent task's assignee. |
+| **Title** | Inline-edit on click; `Enter` commits, `Esc` reverts. Completed rows render in `--text-muted` with a strikethrough. |
+| **Delete** | `×` that fades in on row hover; PM or the subtask's assignee can delete. |
+
+### Progress bar
+
+A full-width 24px bar replaces the old "3 of 5 complete" caption:
+
+- `--border-subtle` background, `--status-done` fill animating from
+  the left as items are checked.
+- Centered overlay text: `3 of 5 complete (60%)`.
+- At 100% the bar pulses gently (`pulseSubtaskComplete`, 2s green
+  box-shadow cycle) and the text flips to `All subtasks complete ✓`.
+
+The pulse only fires when there's at least one subtask — empty ≠ done.
+
+### Tab-to-create
+
+Both inputs short-circuit a long click trail:
+
+- **Add subtask field (bottom):** `Tab` (with a non-empty value)
+  submits, clears, creates another empty row, and focuses **its** edit
+  input.
+- **Inline-edit input:** `Tab` commits the current edit, materializes
+  a new empty placeholder below, and drops focus into it.
+
+Empty-title subtasks deliberately **do not** emit a `subtask_created`
+activity, so chaining Tab-creates doesn't pollute the feed. The first
+real edit a few seconds later updates the title in place (no further
+activity entry, by design).
+
+### Completed sort + collapse
+
+Checked items always sort to the bottom of the visible list. When more
+than three are checked off, a `Show N completed subtasks` toggle
+appears — defaults to hidden so the active items stay focused. The
+toggle preserves the drag-reorder behavior across the full sortOrder,
+so moving a row when completed are collapsed still produces a
+consistent global ordering.
+
+### Subtask assignments in My Tasks
+
+When a subtask is assigned to someone who **isn't** the parent task's
+assignee, that user sees the parent task in their **My Tasks** queue
+with a small blue "Subtask assigned to you" caption above the title.
+The parent task's done-checkbox is disabled for those users — only the
+parent assignee (or a PM) can mark the whole task complete. If the
+user is also the parent assignee, no caption shows and the row
+behaves normally.
+
+---
+
+## Task templates / Quick Create wiring (cont.)
+
 ### Quick Create wiring
 
 When at least one template exists, Quick Create gains a "Use template"
@@ -571,6 +648,66 @@ in `subtask_created` rows when a 6-subtask feature template lands.
 - `src/components/settings/TaskTemplateFormModal.tsx` — the editor modal
 - `src/components/quick-create/QuickCreateModal.tsx` — "Use template"
   dropdown + placeholder-selection focus behavior
+
+---
+
+## PM dashboard
+
+The `/dashboard` route (PM-only) is built out of five collapsible
+panels. The order top-to-bottom: **Summary**, **Projects at a Glance**,
+**This Week**, **Needs Attention**, **This Week's Activity**.
+
+### Collapsible sections
+
+Each section is wrapped in `CollapsibleSection`, which renders the
+title, an optional subtitle, an optional right-side controls slot
+(e.g. the Activity filter dropdown), and a chevron toggle. State is
+per-section, persisted at `team-manager.dashboard-section.<id>`
+(`1` collapsed, `0` open, missing = open). Sections mount open by
+default.
+
+### Projects at a Glance
+
+A horizontally-scrolling strip of 200px mini cards, one per active
+project. Each card:
+
+- Color dot + project name
+- SVG progress ring (r=16, `--accent-primary` stroke over a
+  `--border-subtle` track) with the percentage centered. Projects
+  with zero tasks render `—%` instead of `0%` so a brand-new project
+  doesn't look like failed work.
+- `N open · M overdue` caption — `M overdue` flips to
+  `--priority-critical` when greater than zero.
+- The whole card is a `<Link>` to `/board?project=<id>`, so the
+  Board view opens already filtered.
+
+Archived projects are excluded — the strip is for live work.
+
+### This Week
+
+A Mon–Sun column grid (`grid-cols-7` on `lg+`, horizontal scroll
+below) showing tasks **due** each day:
+
+- Today's column carries a 3px `--accent-primary` left border.
+- Past days fade slightly. If every task due that day is done, the
+  column header shows a green check badge; if any open task is
+  overdue, it shows a red `AlertTriangle` badge instead.
+- Cards in each column are compact: 6px priority dot, title, 20px
+  assignee avatar. Done tasks are filtered out — the header badge
+  carries that signal so the body stays focused on outstanding work.
+- Past-day cards render their title in red so the eye picks up the
+  backlog at a glance.
+
+Tasks without a due date don't show up in the timeline — they belong
+in the regular board / list views.
+
+### Where the code lives
+
+- `src/components/dashboard/CollapsibleSection.tsx`
+- `src/components/dashboard/ProjectsGlance.tsx` (mini card + ring)
+- `src/components/dashboard/WeekTimeline.tsx` (column grid + day cells)
+- `src/pages/DashboardPage.tsx` (composition + persisted activity
+  filter / paginate controls slot into the Activity section)
 
 ---
 

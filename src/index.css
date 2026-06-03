@@ -195,3 +195,14 @@
     box-shadow: 0 0 0 0 color-mix(in srgb, var(--priority-critical) 0%, transparent);
   }
 }
+
+/* Celebration pulse on the subtask progress bar once every item is done.
+   2-second cycle, green shadow halo. */
+@keyframes pulseSubtaskComplete {
+  0%, 100% {
+    box-shadow: 0 0 0 0 color-mix(in srgb, var(--status-done) 0%, transparent);
+  }
+  50% {
+    box-shadow: 0 0 0 4px color-mix(in srgb, var(--status-done) 30%, transparent);
+  }
+}

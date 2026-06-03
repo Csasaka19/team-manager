@@ -1048,13 +1048,18 @@ export function DataProvider({ children }: { children: ReactNode }) {
           }),
         )
         if (!created) throw new Error(`Task ${taskId} not found`)
-        pushActivity(
-          taskId,
-          'subtask_created',
-          `added subtask "${title}"`,
-          [],
-          { subtaskTitle: title },
-        )
+        // Skip the activity entry for empty-title placeholders — those come
+        // from the Tab-to-create rapid entry flow on the task detail page,
+        // and emitting "added subtask \"\"" each time pollutes the feed.
+        if (title.trim().length > 0) {
+          pushActivity(
+            taskId,
+            'subtask_created',
+            `added subtask "${title}"`,
+            [],
+            { subtaskTitle: title },
+          )
+        }
         return created
       }),
     [pushActivity],

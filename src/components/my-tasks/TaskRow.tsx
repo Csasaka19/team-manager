@@ -18,9 +18,17 @@ interface TaskRowProps {
   project: Project | undefined
   /** When true, render in a "completed" muted style with strikethrough. */
   completed?: boolean
+  /** True when the user only sees this task because a subtask is assigned
+   *  to them — renders a small "(subtask assigned to you)" caption. */
+  viaSubtaskOnly?: boolean
 }
 
-export function TaskRow({ task, project, completed = false }: TaskRowProps) {
+export function TaskRow({
+  task,
+  project,
+  completed = false,
+  viaSubtaskOnly = false,
+}: TaskRowProps) {
   const { toggleSubtask, updateTask } = useData()
   const [expanded, setExpanded] = useState(false)
   const [busy, setBusy] = useState(false)
@@ -98,7 +106,12 @@ export function TaskRow({ task, project, completed = false }: TaskRowProps) {
         <button
           type="button"
           onClick={handleCheckTask}
-          disabled={busy}
+          disabled={busy || viaSubtaskOnly}
+          title={
+            viaSubtaskOnly
+              ? 'Only the task assignee can mark the parent task done'
+              : undefined
+          }
           aria-label={completed ? `Mark ${task.title} as not done` : `Mark ${task.title} as done`}
           aria-pressed={completed}
           className={cn(
@@ -106,13 +119,18 @@ export function TaskRow({ task, project, completed = false }: TaskRowProps) {
             completed
               ? 'border-[var(--status-done)] bg-[var(--status-done)] text-[var(--text-inverse)]'
               : 'border-[var(--border-default)] bg-transparent hover:border-[var(--status-done)] hover:bg-[color-mix(in_srgb,var(--status-done)_15%,transparent)]',
-            busy && 'opacity-50',
+            (busy || viaSubtaskOnly) && 'opacity-50',
           )}
         >
           {completed && <Check className="h-3.5 w-3.5" strokeWidth={3} aria-hidden="true" />}
         </button>
 
         <div className="min-w-0 flex-1">
+          {viaSubtaskOnly && (
+            <p className="mb-0.5 text-[10px] font-medium uppercase tracking-[0.5px] text-[var(--accent-primary)]">
+              Subtask assigned to you
+            </p>
+          )}
           <div className="flex flex-wrap items-baseline gap-x-3 gap-y-1">
             <Link
               to={`/tasks/${task.id}`}
