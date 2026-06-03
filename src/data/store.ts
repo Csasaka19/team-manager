@@ -44,6 +44,7 @@ import {
   type Tag,
   type Task,
   type TaskStatus,
+  type TaskTemplate,
   type TeamMember,
 } from './types'
 
@@ -54,9 +55,61 @@ const STATUS_LABEL_OVERRIDES_KEY = 'team-manager.status-label-overrides'
 const COLUMN_ORDER_KEY = 'team-manager.column-order'
 const NOTIF_PREFS_PREFIX = 'team-manager.notif-prefs.'
 const DISCORD_SETTINGS_KEY = 'team-manager.discord-settings'
+const TASK_TEMPLATES_KEY = 'team-manager.task-templates'
 
 const DEFAULT_WORKSPACE_NAME = 'Team Manager'
 const DEFAULT_COLUMN_ORDER: TaskStatus[] = ['todo', 'in_progress', 'in_review', 'done']
+
+/**
+ * Seeded templates shipped on first load. Once the user edits or deletes any,
+ * the localStorage record takes over and these no longer reappear on refresh.
+ * Deterministic IDs so the seeds don't drift across sessions.
+ */
+const DEFAULT_TASK_TEMPLATES: TaskTemplate[] = [
+  {
+    id: 'tmpl-bug',
+    name: 'Bug Report',
+    title: 'Bug: [description]',
+    description: '',
+    priority: 'high',
+    subtaskTitles: [
+      'Reproduce the bug',
+      'Identify root cause',
+      'Implement fix',
+      'Write regression test',
+      'Verify fix in staging',
+    ],
+    tagNames: ['bug'],
+    createdAt: '2026-05-01T00:00:00.000Z',
+  },
+  {
+    id: 'tmpl-feature',
+    name: 'Feature Request',
+    title: '[Feature name]',
+    description: '',
+    priority: 'medium',
+    subtaskTitles: [
+      'Define requirements',
+      'Design solution',
+      'Implement',
+      'Write tests',
+      'Code review',
+      'Deploy',
+    ],
+    tagNames: ['feature'],
+    createdAt: '2026-05-01T00:00:00.000Z',
+  },
+  {
+    id: 'tmpl-doc',
+    name: 'Documentation',
+    title: 'Document: [topic]',
+    description: '',
+    priority: 'low',
+    subtaskTitles: ['Draft content', 'Peer review', 'Publish'],
+    tagNames: ['documentation'],
+    createdAt: '2026-05-01T00:00:00.000Z',
+  },
+]
 
 /** Map a NotificationType to the pref key shown in Settings. */
 const NOTIF_TYPE_PREF_KEY: Record<NotificationType, string> = {
@@ -129,6 +182,8 @@ export interface CreateTaskInput {
   status?: TaskStatus
   dueDate?: string | null
   tags?: string[]
+  /** Subtask titles to materialize alongside the task — used by templates. */
+  subtasks?: string[]
 }
 
 export interface UpdateTaskInput {
@@ -183,6 +238,17 @@ export interface DataStore {
   setDiscordSettings: (next: DiscordSettings) => void
   /** Sends a sample embed to the configured webhook and resolves with the result. */
   testDiscordWebhook: () => Promise<{ ok: boolean; error?: string }>
+
+  // Task templates (PM-managed)
+  templates: TaskTemplate[]
+  createTemplate: (
+    input: Omit<TaskTemplate, 'id' | 'createdAt'>,
+  ) => TaskTemplate
+  updateTemplate: (
+    id: string,
+    patch: Partial<Omit<TaskTemplate, 'id' | 'createdAt'>>,
+  ) => void
+  deleteTemplate: (id: string) => void
 
   // Task CRUD
   createTask: (input: CreateTaskInput) => Promise<Task>
@@ -324,15 +390,72 @@ export function DataProvider({ children }: { children: ReactNode }) {
     [],
   )
 
+  // Task templates — seeded on first load. Once the user has touched them
+  // (edit or delete), the localStorage record takes over and the seed array
+  // is no longer consulted, so deletions stay deleted across refreshes.
+  const [templates, setTemplatesState] = useState<TaskTemplate[]>(() =>
+    loadJSON<TaskTemplate[]>(TASK_TEMPLATES_KEY, DEFAULT_TASK_TEMPLATES),
+  )
+
+  const persistTemplates = useCallback((next: TaskTemplate[]) => {
+    setTemplatesState(next)
+    saveJSON(TASK_TEMPLATES_KEY, next)
+  }, [])
+
+  const createTemplate = useCallback<DataStore['createTemplate']>(
+    (input) => {
+      const template: TaskTemplate = {
+        id: uid('tmpl'),
+        createdAt: new Date().toISOString(),
+        ...input,
+      }
+      persistTemplates([...templates, template])
+      return template
+    },
+    [templates, persistTemplates],
+  )
+
+  const updateTemplate = useCallback<DataStore['updateTemplate']>(
+    (id, patch) => {
+      persistTemplates(
+        templates.map((t) => (t.id === id ? { ...t, ...patch } : t)),
+      )
+    },
+    [templates, persistTemplates],
+  )
+
+  const deleteTemplate = useCallback<DataStore['deleteTemplate']>(
+    (id) => {
+      persistTemplates(templates.filter((t) => t.id !== id))
+    },
+    [templates, persistTemplates],
+  )
+
   const actorId = currentUser?.id ?? 'system'
+
+  /** Subset of Activity fields callers can pass to enrich a feed entry. */
+  type ActivityMetadata = Partial<
+    Pick<
+      Activity,
+      | 'fromValue'
+      | 'toValue'
+      | 'fromMemberId'
+      | 'toMemberId'
+      | 'subtaskTitle'
+      | 'taskTitle'
+      | 'projectId'
+      | 'memberId'
+    >
+  >
 
   /** Push a synthetic Activity entry (used both by external callers and by mutations). */
   const pushActivity = useCallback(
     (
-      taskId: string,
+      taskId: string | null,
       type: ActivityType,
       content: string,
       mentions: string[] = [],
+      metadata: ActivityMetadata = {},
     ): Activity => {
       const entry: Activity = {
         id: uid('act'),
@@ -342,6 +465,7 @@ export function DataProvider({ children }: { children: ReactNode }) {
         content,
         mentions,
         createdAt: new Date().toISOString(),
+        ...metadata,
       }
       setActivities((prev) => [...prev, entry])
       return entry
@@ -453,8 +577,26 @@ export function DataProvider({ children }: { children: ReactNode }) {
     (input) =>
       withMutation(() => {
         const now = new Date().toISOString()
+        const taskId = uid('task')
+        // Subtasks from a template / batch creation materialize on the same
+        // task in a single setTasks call so the 800 ms mutation delay fires
+        // once. They deliberately do NOT emit individual subtask_created
+        // activity entries — the parent creation activity covers them.
+        const initialSubtasks: Subtask[] = (input.subtasks ?? [])
+          .map((title) => title.trim())
+          .filter((title) => title.length > 0)
+          .map((title, idx) => ({
+            id: uid('sub'),
+            taskId,
+            title,
+            assigneeId: null,
+            done: false,
+            sortOrder: idx,
+            createdAt: now,
+            completedAt: null,
+          }))
         const task: Task = {
-          id: uid('task'),
+          id: taskId,
           title: input.title,
           description: input.description ?? '',
           projectId: input.projectId,
@@ -463,18 +605,23 @@ export function DataProvider({ children }: { children: ReactNode }) {
           status: input.status ?? 'todo',
           dueDate: input.dueDate ?? null,
           tags: input.tags ?? [],
-          subtasks: [],
+          subtasks: initialSubtasks,
           createdAt: now,
           updatedAt: now,
           createdBy: actorId,
         }
         setTasks((prev) => [...prev, task])
-        pushActivity(task.id, 'creation', 'created this task')
+        pushActivity(task.id, 'creation', 'created this task', [], {
+          projectId: task.projectId,
+          taskTitle: task.title,
+        })
         if (task.assigneeId) {
           pushActivity(
             task.id,
             'assignment',
             `assigned this to ${memberName(teamMembers, task.assigneeId)}`,
+            [],
+            { fromMemberId: null, toMemberId: task.assigneeId },
           )
           pushNotification({
             recipientId: task.assigneeId,
@@ -517,7 +664,12 @@ export function DataProvider({ children }: { children: ReactNode }) {
           pushActivity(
             id,
             'status_change',
-            `moved this to ${statusLabels[patch.status]}`,
+            `moved this from ${statusLabels[prev.status]} to ${statusLabels[patch.status]}`,
+            [],
+            {
+              fromValue: statusLabels[prev.status],
+              toValue: statusLabels[patch.status],
+            },
           )
           if (prev.assigneeId && prev.assigneeId !== actorId) {
             pushNotification({
@@ -557,6 +709,11 @@ export function DataProvider({ children }: { children: ReactNode }) {
             patch.assigneeId
               ? `assigned this to ${memberName(teamMembers, patch.assigneeId)}`
               : 'unassigned this task',
+            [],
+            {
+              fromMemberId: prev.assigneeId,
+              toMemberId: patch.assigneeId,
+            },
           )
           if (patch.assigneeId) {
             pushNotification({
@@ -579,7 +736,29 @@ export function DataProvider({ children }: { children: ReactNode }) {
           pushActivity(
             id,
             'priority_change',
-            `set priority to ${patch.priority.charAt(0).toUpperCase() + patch.priority.slice(1)}`,
+            `set priority from ${prev.priority} to ${patch.priority}`,
+            [],
+            {
+              fromValue: prev.priority,
+              toValue: patch.priority,
+            },
+          )
+        }
+        if (
+          patch.dueDate !== undefined &&
+          patch.dueDate !== prev.dueDate
+        ) {
+          pushActivity(
+            id,
+            'due_date_change',
+            patch.dueDate
+              ? `set due date to ${patch.dueDate}`
+              : 'cleared the due date',
+            [],
+            {
+              fromValue: prev.dueDate ?? undefined,
+              toValue: patch.dueDate ?? undefined,
+            },
           )
         }
         return next
@@ -597,11 +776,25 @@ export function DataProvider({ children }: { children: ReactNode }) {
   const deleteTask = useCallback<DataStore['deleteTask']>(
     (id) =>
       withMutation(() => {
+        // Snapshot the title BEFORE removal so the activity entry — which
+        // survives in the feed — still has something to display.
+        const snapshot = tasksRef.current.find((t) => t.id === id)
         setTasks((prev) => prev.filter((t) => t.id !== id))
-        setActivities((prev) => prev.filter((a) => a.taskId !== id))
+        // Keep this task's existing activities; just append the deletion
+        // marker. The dashboard feed will show "Alex deleted 'Foo'" alongside
+        // any prior history.
         setNotifications((prev) => prev.filter((n) => n.taskId !== id))
+        if (snapshot) {
+          pushActivity(
+            null,
+            'task_deleted',
+            `deleted task "${snapshot.title}"`,
+            [],
+            { taskTitle: snapshot.title, projectId: snapshot.projectId },
+          )
+        }
       }),
-    [],
+    [pushActivity],
   )
 
   const bulkUpdateTasks = useCallback<DataStore['bulkUpdateTasks']>(
@@ -628,7 +821,12 @@ export function DataProvider({ children }: { children: ReactNode }) {
             pushActivity(
               prev.id,
               'status_change',
-              `moved this to ${statusLabels[patch.status]}`,
+              `moved this from ${statusLabels[prev.status]} to ${statusLabels[patch.status]}`,
+              [],
+              {
+                fromValue: statusLabels[prev.status],
+                toValue: statusLabels[patch.status],
+              },
             )
             if (prev.assigneeId && prev.assigneeId !== actorId) {
               pushNotification({
@@ -648,6 +846,11 @@ export function DataProvider({ children }: { children: ReactNode }) {
               patch.assigneeId
                 ? `assigned this to ${memberName(teamMembers, patch.assigneeId)}`
                 : 'unassigned this task',
+              [],
+              {
+                fromMemberId: prev.assigneeId,
+                toMemberId: patch.assigneeId,
+              },
             )
             if (patch.assigneeId) {
               pushNotification({
@@ -661,7 +864,26 @@ export function DataProvider({ children }: { children: ReactNode }) {
             pushActivity(
               prev.id,
               'priority_change',
-              `set priority to ${patch.priority.charAt(0).toUpperCase() + patch.priority.slice(1)}`,
+              `set priority from ${prev.priority} to ${patch.priority}`,
+              [],
+              { fromValue: prev.priority, toValue: patch.priority },
+            )
+          }
+          if (
+            patch.dueDate !== undefined &&
+            patch.dueDate !== prev.dueDate
+          ) {
+            pushActivity(
+              prev.id,
+              'due_date_change',
+              patch.dueDate
+                ? `set due date to ${patch.dueDate}`
+                : 'cleared the due date',
+              [],
+              {
+                fromValue: prev.dueDate ?? undefined,
+                toValue: patch.dueDate ?? undefined,
+              },
             )
           }
         }
@@ -719,7 +941,9 @@ export function DataProvider({ children }: { children: ReactNode }) {
         if (ids.length === 0) return
         const idSet = new Set(ids)
         setTasks((prev) => prev.filter((t) => !idSet.has(t.id)))
-        setActivities((prev) => prev.filter((a) => !idSet.has(a.taskId)))
+        setActivities((prev) =>
+          prev.filter((a) => a.taskId === null || !idSet.has(a.taskId)),
+        )
         setNotifications((prev) => prev.filter((n) => !idSet.has(n.taskId)))
       }),
     [],
@@ -741,9 +965,16 @@ export function DataProvider({ children }: { children: ReactNode }) {
           createdBy: actorId,
         }
         setProjects((prev) => [...prev, project])
+        pushActivity(
+          null,
+          'project_created',
+          `created project "${project.name}"`,
+          [],
+          { projectId: project.id },
+        )
         return project
       }),
-    [actorId],
+    [actorId, pushActivity],
   )
 
   const updateProject = useCallback<DataStore['updateProject']>(
@@ -778,7 +1009,9 @@ export function DataProvider({ children }: { children: ReactNode }) {
             prev.filter((t) => t.projectId === id).map((t) => t.id),
           )
           setActivities((acts) =>
-            acts.filter((a) => !removedTaskIds.has(a.taskId)),
+            acts.filter(
+              (a) => a.taskId === null || !removedTaskIds.has(a.taskId),
+            ),
           )
           setNotifications((notifs) =>
             notifs.filter((n) => !removedTaskIds.has(n.taskId)),
@@ -815,9 +1048,16 @@ export function DataProvider({ children }: { children: ReactNode }) {
           }),
         )
         if (!created) throw new Error(`Task ${taskId} not found`)
+        pushActivity(
+          taskId,
+          'subtask_created',
+          `added subtask "${title}"`,
+          [],
+          { subtaskTitle: title },
+        )
         return created
       }),
-    [],
+    [pushActivity],
   )
 
   const toggleSubtask = useCallback<DataStore['toggleSubtask']>(
@@ -848,6 +1088,8 @@ export function DataProvider({ children }: { children: ReactNode }) {
             taskId,
             'subtask_complete',
             `completed subtask '${completedTitle}'`,
+            [],
+            { subtaskTitle: completedTitle },
           )
         }
       }),
@@ -969,15 +1211,32 @@ export function DataProvider({ children }: { children: ReactNode }) {
           createdAt: new Date().toISOString(),
         }
         setTeamMembers((prev) => [...prev, member])
+        pushActivity(
+          null,
+          'member_added',
+          `added ${member.name} to the team`,
+          [],
+          { memberId: member.id },
+        )
         return member
       }),
-    [],
+    [pushActivity],
   )
 
   const removeTeamMember = useCallback<DataStore['removeTeamMember']>(
     (id) =>
       withMutation(() => {
+        const snapshot = teamMembersRef.current.find((m) => m.id === id)
         setTeamMembers((prev) => prev.filter((m) => m.id !== id))
+        if (snapshot) {
+          pushActivity(
+            null,
+            'member_removed',
+            `removed ${snapshot.name} from the team`,
+            [],
+            { memberId: snapshot.id },
+          )
+        }
         // Cascade: unassign tasks + subtasks; drop their notifications.
         setTasks((prev) =>
           prev.map((t) => ({
@@ -999,7 +1258,7 @@ export function DataProvider({ children }: { children: ReactNode }) {
           ),
         )
       }),
-    [],
+    [pushActivity],
   )
 
   const updateTeamMember = useCallback<DataStore['updateTeamMember']>(
@@ -1089,6 +1348,10 @@ export function DataProvider({ children }: { children: ReactNode }) {
       discordSettings,
       setDiscordSettings,
       testDiscordWebhook,
+      templates,
+      createTemplate,
+      updateTemplate,
+      deleteTemplate,
       createTask,
       updateTask,
       deleteTask,
@@ -1130,6 +1393,10 @@ export function DataProvider({ children }: { children: ReactNode }) {
       discordSettings,
       setDiscordSettings,
       testDiscordWebhook,
+      templates,
+      createTemplate,
+      updateTemplate,
+      deleteTemplate,
       createTask,
       updateTask,
       deleteTask,

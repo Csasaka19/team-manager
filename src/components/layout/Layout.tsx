@@ -42,7 +42,8 @@ export function Layout() {
   const location = useLocation()
   const [searchParams] = useSearchParams()
   const { isPM, currentUser } = useAuth()
-  const { tasks, projects, teamMembers, createTask } = useData()
+  const { tasks, projects, teamMembers, tags, templates, createTask } =
+    useData()
 
   const { discordSettings } = useData()
   const [mobileOpen, setMobileOpen] = useState(false)
@@ -222,6 +223,8 @@ export function Layout() {
         open={createOpen}
         projects={projects}
         members={teamMembers}
+        templates={templates}
+        tags={tags}
         defaultProjectId={createDefaultProjectId}
         onClose={() => setCreateOpen(false)}
         onSubmit={handleCreateSubmit}

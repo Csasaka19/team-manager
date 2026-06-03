@@ -1,4 +1,4 @@
-import { useMemo } from 'react'
+import { useMemo, useState } from 'react'
 import { Link } from 'react-router-dom'
 import {
   AlertTriangle,
@@ -12,7 +12,10 @@ import {
   NeedsAttention,
   type AttentionItem,
 } from '@/components/dashboard/NeedsAttention'
-import { ActivityFeed } from '@/components/dashboard/ActivityFeed'
+import {
+  ActivityFeed,
+  type ActivityFilter,
+} from '@/components/dashboard/ActivityFeed'
 import { useAuth } from '@/data/auth'
 import { useData } from '@/data/store'
 import { STATUS_LABELS, type Task } from '@/data/types'
@@ -27,7 +30,15 @@ import {
 
 const STALE_DAYS = 5
 const QUESTION_WINDOW_HOURS = 48
-const ACTIVITY_FEED_LIMIT = 20
+const ACTIVITY_FEED_INITIAL = 30
+const ACTIVITY_FEED_PAGE = 30
+
+const FILTER_OPTIONS: Array<{ value: ActivityFilter; label: string }> = [
+  { value: 'all', label: 'All activity' },
+  { value: 'status', label: 'Status changes' },
+  { value: 'comments', label: 'Comments' },
+  { value: 'assignments', label: 'Assignments' },
+]
 
 export default function DashboardPage() {
   const { currentUser } = useAuth()
@@ -38,13 +49,33 @@ export default function DashboardPage() {
     () => computeAttention(tasks, activities, projects, teamMembers),
     [tasks, activities, projects, teamMembers],
   )
-  const recentActivities = useMemo(
+  const [activityFilter, setActivityFilter] = useState<ActivityFilter>('all')
+  const [activityLimit, setActivityLimit] = useState(ACTIVITY_FEED_INITIAL)
+
+  const sortedActivities = useMemo(
     () =>
-      [...activities]
-        .sort((a, b) => b.createdAt.localeCompare(a.createdAt))
-        .slice(0, ACTIVITY_FEED_LIMIT),
+      [...activities].sort((a, b) =>
+        b.createdAt.localeCompare(a.createdAt),
+      ),
     [activities],
   )
+  // The filter applies before pagination — picking "Comments" first then
+  // pressing "Load more" should reveal the next 30 comments, not be diluted
+  // by the 30 most-recent of any type.
+  const filteredActivities = useMemo(() => {
+    if (activityFilter === 'all') return sortedActivities
+    const allow: Record<Exclude<ActivityFilter, 'all'>, string> = {
+      status: 'status_change',
+      comments: 'comment',
+      assignments: 'assignment',
+    }
+    return sortedActivities.filter((a) => a.type === allow[activityFilter])
+  }, [sortedActivities, activityFilter])
+  const visibleActivities = useMemo(
+    () => filteredActivities.slice(0, activityLimit),
+    [filteredActivities, activityLimit],
+  )
+  const canLoadMore = filteredActivities.length > visibleActivities.length
 
   if (projects.length === 0) {
     return <EmptyDashboard />
@@ -90,18 +121,51 @@ export default function DashboardPage() {
       </section>
 
       <section aria-labelledby="activity-heading">
-        <h2
-          id="activity-heading"
-          className="mb-3 text-lg font-semibold text-[var(--text-primary)]"
-        >
-          This Week&apos;s Activity
-        </h2>
+        <div className="mb-3 flex flex-wrap items-center justify-between gap-3">
+          <h2
+            id="activity-heading"
+            className="text-lg font-semibold text-[var(--text-primary)]"
+          >
+            This Week&apos;s Activity
+          </h2>
+          <label className="inline-flex items-center gap-2 text-xs text-[var(--text-secondary)]">
+            <span className="sr-only">Filter activity</span>
+            <select
+              value={activityFilter}
+              onChange={(e) => {
+                setActivityFilter(e.target.value as ActivityFilter)
+                setActivityLimit(ACTIVITY_FEED_INITIAL)
+              }}
+              aria-label="Filter activity"
+              className="h-8 rounded-md border border-[var(--border-subtle)] bg-[var(--bg-input)] px-2 text-xs text-[var(--text-primary)] outline-none focus:border-[var(--accent-primary)] focus:ring-2 focus:ring-[var(--accent-focus)]"
+            >
+              {FILTER_OPTIONS.map((opt) => (
+                <option key={opt.value} value={opt.value}>
+                  {opt.label}
+                </option>
+              ))}
+            </select>
+          </label>
+        </div>
         <ActivityFeed
-          activities={recentActivities}
+          activities={visibleActivities}
           tasks={tasks}
           projects={projects}
           members={teamMembers}
         />
+        {canLoadMore && (
+          <div className="mt-3 flex justify-center">
+            <button
+              type="button"
+              onClick={() =>
+                setActivityLimit((n) => n + ACTIVITY_FEED_PAGE)
+              }
+              className="inline-flex h-9 items-center justify-center rounded-md border border-[var(--border-default)] bg-transparent px-4 text-sm font-medium text-[var(--text-primary)] transition-colors hover:bg-[var(--bg-elevated)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent-focus)]"
+            >
+              Load more
+            </button>
+          </div>
+        )}
       </section>
     </div>
   )
@@ -174,7 +238,7 @@ function computeAttention(
   // Pre-index latest status_change per task for stale detection.
   const lastStatusChangeByTask = new Map<string, string>()
   for (const a of activities) {
-    if (a.type !== 'status_change') continue
+    if (a.type !== 'status_change' || a.taskId === null) continue
     const prev = lastStatusChangeByTask.get(a.taskId)
     if (!prev || a.createdAt > prev) {
       lastStatusChangeByTask.set(a.taskId, a.createdAt)
@@ -238,6 +302,7 @@ function computeAttention(
     )
     .sort((a, b) => b.createdAt.localeCompare(a.createdAt))
   for (const activity of questionComments) {
+    if (activity.taskId === null) continue
     const task = taskById.get(activity.taskId)
     if (!task) continue
     items.push({

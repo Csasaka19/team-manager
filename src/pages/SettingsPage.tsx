@@ -2,6 +2,7 @@ import { AccountSection } from '@/components/settings/AccountSection'
 import { DiscordSection } from '@/components/settings/DiscordSection'
 import { NotificationsSection } from '@/components/settings/NotificationsSection'
 import { TagsSection } from '@/components/settings/TagsSection'
+import { TaskTemplatesSection } from '@/components/settings/TaskTemplatesSection'
 import { WorkspaceSection } from '@/components/settings/WorkspaceSection'
 import { useAuth } from '@/data/auth'
 
@@ -21,6 +22,7 @@ export default function SettingsPage() {
 
       {isPM && <WorkspaceSection />}
       {isPM && <TagsSection />}
+      {isPM && <TaskTemplatesSection />}
       {isPM && <DiscordSection />}
       <NotificationsSection />
       <AccountSection />

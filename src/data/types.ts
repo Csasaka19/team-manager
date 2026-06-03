@@ -16,7 +16,13 @@ export type ActivityType =
   | 'comment'
   | 'creation'
   | 'subtask_complete'
+  | 'subtask_created'
   | 'priority_change'
+  | 'due_date_change'
+  | 'task_deleted'
+  | 'project_created'
+  | 'member_added'
+  | 'member_removed'
 
 export type NotificationType =
   | 'assigned'
@@ -76,18 +82,59 @@ export interface Task {
 
 export interface Activity {
   id: string
-  taskId: string
+  /** `null` for workspace-scoped activities (project_created, member_*). */
+  taskId: string | null
   actorId: string
   type: ActivityType
+  /** Free-form body. For comments, the user's text. For other events, a
+   *  human-readable summary kept for back-compat with seeded fixtures. */
   content: string
   mentions: string[]
   createdAt: string
+  // Optional structured detail — renderers prefer these over parsing `content`.
+  /** Old value, where applicable (status / priority / due date label). */
+  fromValue?: string
+  /** New value, where applicable. */
+  toValue?: string
+  /** Old assignee — assignment changes. `null` = was unassigned. */
+  fromMemberId?: string | null
+  /** New assignee — assignment changes. `null` = unassigned. */
+  toMemberId?: string | null
+  /** Subtask title for subtask_created / subtask_complete events. */
+  subtaskTitle?: string
+  /** Snapshot of the task title at the moment of deletion (the task itself
+   *  is gone, so renderers fall back to this). */
+  taskTitle?: string
+  /** Project context for creation / project_created. */
+  projectId?: string
+  /** Member context for member_added / member_removed. */
+  memberId?: string
 }
 
 export interface Tag {
   id: string
   name: string
   color: string
+}
+
+/**
+ * Saved task template — speeds up repetitive creation (bug reports, feature
+ * requests, documentation tasks, etc.). Tags are stored by NAME so a tag
+ * rename or ID change doesn't silently orphan templates.
+ */
+export interface TaskTemplate {
+  id: string
+  /** Display name in the Settings list and Quick Create dropdown. */
+  name: string
+  /** Pre-filled task title — may contain `[placeholders]` for the user to replace. */
+  title: string
+  description: string
+  priority: Priority
+  /** Subtask titles to create alongside the task. */
+  subtaskTitles: string[]
+  /** Tag names — resolved to existing IDs at apply time. */
+  tagNames: string[]
+  createdAt: string
 }
 
 export interface Notification {

@@ -29,9 +29,11 @@ required to demo. Drop in a real API later and the UI doesn't need to change.
 - [Accessibility](#accessibility)
 - [Keyboard shortcuts](#keyboard-shortcuts)
 - [Quick Create](#quick-create)
+- [Task templates](#task-templates)
 - [Bulk actions](#bulk-actions)
 - [Board view modes](#board-view-modes)
 - [Due dates](#due-dates)
+- [Activity feed](#activity-feed)
 - [Discord integration](#discord-integration)
 - [Known limitations](#known-limitations)
 - [Contributing](#contributing)
@@ -60,6 +62,12 @@ required to demo. Drop in a real API later and the UI doesn't need to change.
   `+ New Task` button, or a mobile-only floating `+` FAB. Smart project
   defaulting, session-remembered last project, **Create** vs **Create & Open**
   submit modes. See [Quick Create](#quick-create).
+- **Task templates** — PM-curated presets (title, priority, default
+  subtasks, default tags) for repetitive task shapes. Three ship by
+  default — Bug Report, Feature Request, Documentation — and Quick
+  Create exposes them in a "Use template" dropdown that pre-fills the
+  form and materializes the subtasks on submit. See
+  [Task templates](#task-templates).
 - **Bulk actions on the board** — Ctrl/Cmd-click cards to multi-select,
   Shift-click to extend a range within a column, then a floating bar lets
   you set priority / assignee / due date / status, or delete, on every
@@ -74,6 +82,12 @@ required to demo. Drop in a real API later and the UI doesn't need to change.
   in every date picker, overdue rows/cards visually flagged across
   Board / My Tasks / Dashboard, and a once-per-session Discord digest
   of every overdue task. See [Due dates](#due-dates).
+- **Rich activity feed** — every meaningful mutation (creation, status,
+  assignment, priority, subtask, comment, due-date, deletion, project,
+  team) emits a typed activity. Dashboard shows a filterable
+  paginated feed; task detail interleaves big comment cards with
+  compact system rows. Per-item timestamp toggle. See
+  [Activity feed](#activity-feed).
 - **Discord integration** — relay task events (created / status changed /
   assigned / completed / commented) to a Discord channel via webhook, with
   rich embeds and per-event toggles in Settings. See
@@ -494,6 +508,72 @@ since the in-memory store updates synchronously after the artificial
 
 ---
 
+## Task templates
+
+Settings → **Task Templates** (PM only) is where the team's repeated
+task shapes live. Three ship by default; PMs can add, edit, or delete
+freely.
+
+### What ships out of the box
+
+| Template | Title format | Priority | Subtasks | Tags |
+|---|---|---|---|---|
+| **Bug Report** | `Bug: [description]` | High | Reproduce · Identify root cause · Implement fix · Write regression test · Verify fix in staging | `bug` |
+| **Feature Request** | `[Feature name]` | Medium | Define requirements · Design solution · Implement · Write tests · Code review · Deploy | `feature` |
+| **Documentation** | `Document: [topic]` | Low | Draft content · Peer review · Publish | `documentation` |
+
+Templates live in `localStorage` under `team-manager.task-templates`.
+The seeded defaults only get written when nothing is stored yet — once
+the user edits or deletes any of them, the stored array takes over and
+the seeds don't reappear on refresh.
+
+### Editor
+
+The "New template" / edit modal collects:
+
+- **Template name** — what shows up in the dropdown and the Settings list
+- **Task title** — supports `[brackets]` to mark placeholders; Quick
+  Create auto-selects the first one for fast over-typing
+- **Description** — optional, lands in the new task's description field
+- **Default priority**
+- **Default subtasks** — repeating input rows with `+` / `×` controls
+- **Default tags** — toggle-chips picked from the live tag list (stored
+  by **name** so renamed/deleted tags degrade gracefully)
+
+### Quick Create wiring
+
+When at least one template exists, Quick Create gains a "Use template"
+dropdown above the title field. Picking one:
+
+1. Pre-fills the **title** (with the placeholder text selected — typing
+   replaces it).
+2. Pre-fills the **priority**.
+3. Shows a small caption ("+5 subtasks · +1 tag · replace the
+   [placeholder] in the title") so the user knows what's coming.
+4. On **Create** or **Create & Open**, the new task carries the
+   template's subtasks and the resolved tag IDs. Subtasks materialize
+   in the same store mutation as the parent task — the artificial
+   800 ms delay fires **once**, not once per subtask.
+
+Subtask emissions are deliberately silent for template-created tasks:
+the parent `creation` activity covers them, so the feed isn't drowned
+in `subtask_created` rows when a 6-subtask feature template lands.
+
+### Where the code lives
+
+- `src/data/types.ts` — `TaskTemplate` interface
+- `src/data/store.ts` — `templates` state, `createTemplate` /
+  `updateTemplate` / `deleteTemplate`, the `DEFAULT_TASK_TEMPLATES`
+  seed, and the `CreateTaskInput.subtasks` extension that lets a single
+  `createTask` call materialize child subtasks atomically
+- `src/components/settings/TaskTemplatesSection.tsx` — list + Add /
+  Edit / Delete controls
+- `src/components/settings/TaskTemplateFormModal.tsx` — the editor modal
+- `src/components/quick-create/QuickCreateModal.tsx` — "Use template"
+  dropdown + placeholder-selection focus behavior
+
+---
+
 ## Bulk actions
 
 The fastest way to triage a board. Pick a handful of cards, then change
@@ -715,6 +795,75 @@ The flag clears when the tab closes, so opening the app fresh the
 next day re-sends. For an actual daily cadence with multiple users you
 still want the production backend proxy — see
 [Discord integration](#discord-integration).
+
+---
+
+## Activity feed
+
+Every mutation that changes user-visible state pushes a typed
+`Activity` entry. The Dashboard surfaces them in a paginated,
+filterable feed; the Task Detail page interleaves them with comments
+for a focused conversation view.
+
+### Activity types
+
+| Type | When it fires | Icon |
+|---|---|---|
+| `creation` | A task is created | `Plus` |
+| `status_change` | A task moves between columns (records `fromValue` / `toValue`) | `ArrowRight` |
+| `assignment` | A task's assignee changes (records `fromMemberId` / `toMemberId`) | `UserPlus` |
+| `priority_change` | A task's priority changes (records `fromValue` / `toValue`) | `Flag` |
+| `due_date_change` | A task's due date is set, changed, or cleared | `Calendar` |
+| `subtask_created` | A subtask is added (records `subtaskTitle`) | `CheckSquare` |
+| `subtask_complete` | A subtask is checked off (records `subtaskTitle`) | `CheckSquare` |
+| `comment` | Someone posts a comment | `MessageSquare` |
+| `task_deleted` | A task is deleted (snapshots the title) | `Trash2` |
+| `project_created` | A new project is created | `Plus` |
+| `member_added` | A team member joins | `UserPlus` |
+| `member_removed` | A team member is removed | `Trash2` |
+
+Workspace-scoped types (`task_deleted`, `project_created`,
+`member_*`) have `taskId === null` — they show up on the dashboard
+but not on any task detail page. All other types attach to a task.
+
+### Phrase formatting
+
+`src/components/shared/ActivityItem.tsx` composes the verb phrase from
+the activity's structured metadata, falling back to the seeded
+`content` string when older entries don't carry the new fields.
+Examples:
+
+> *Alex* **created** "Fix checkout bug" *in Website Redesign · 2 hours ago*
+> *Sam* **moved** "Design landing page" *from To Do to In Progress · 45 minutes ago*
+> *Alex* **assigned** "Set up CI/CD" *to Sam · yesterday*
+> *Sam* **completed subtask** "Write unit tests" *on "API Migration" · 3 hours ago*
+
+### Dashboard feed
+
+- Shows the 30 most recent activities, with a **Load more** button
+  that reveals 30 more each click.
+- A filter dropdown above the feed scopes to **All activity**,
+  **Status changes**, **Comments**, or **Assignments**. Changing the
+  filter resets pagination so each filter has its own 30-item window.
+- Each row links to the relevant task (when there is one). Workspace-
+  scoped entries render as plain rows.
+
+### Task detail feed
+
+- Shows **every** activity for the current task, no pagination.
+- Comments render as large left-bordered cards with the full body and
+  any `@mention` highlights.
+- System events (status, priority, assignment, subtask, due-date) are
+  compact one-line rows between the comment cards — easy to scan
+  without drowning the conversation.
+
+### Per-item timestamp toggle
+
+Every relative timestamp (e.g. `2 hours ago`) is clickable. One click
+flips it to the absolute form (`May 28, 2026 at 2:34 PM`), another
+flips it back. The state is local to that item — clicking one row
+doesn't affect any others, and refreshing the page resets everything
+to relative.
 
 ---
 

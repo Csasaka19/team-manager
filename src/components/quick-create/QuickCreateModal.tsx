@@ -17,6 +17,8 @@ import {
   PRIORITY_LABELS,
   type Priority,
   type Project,
+  type Tag,
+  type TaskTemplate,
   type TeamMember,
 } from '@/data/types'
 
@@ -26,12 +28,20 @@ export interface QuickCreateValues {
   priority: Priority
   assigneeId: string | null
   dueDate: string | null
+  /** Tag IDs to attach to the new task (set by template selection). */
+  tags?: string[]
+  /** Subtask titles to materialize alongside the task (set by template selection). */
+  subtasks?: string[]
 }
 
 interface QuickCreateModalProps {
   open: boolean
   projects: Project[]
   members: TeamMember[]
+  /** Templates surfaced via the "Use Template" dropdown. Empty = no dropdown. */
+  templates: TaskTemplate[]
+  /** Live tag list used to resolve a template's tagNames → tag IDs. */
+  tags: Tag[]
   /** Pre-selects (does not lock) the project field. */
   defaultProjectId?: string
   onClose: () => void
@@ -65,14 +75,29 @@ function chipLabel(iso: string | null): string {
   return formatRelativeDueDate(iso)?.label ?? 'No date'
 }
 
+/** Resolve template tag names to live tag IDs. Case-insensitive; misses are
+ *  dropped (a renamed or deleted tag won't break the template). */
+function resolveTagNames(names: string[], tags: Tag[]): string[] {
+  const byName = new Map(tags.map((t) => [t.name.toLowerCase(), t.id]))
+  const out: string[] = []
+  for (const n of names) {
+    const id = byName.get(n.toLowerCase())
+    if (id) out.push(id)
+  }
+  return out
+}
+
 export function QuickCreateModal({
   open,
   projects,
   members,
+  templates,
+  tags,
   defaultProjectId,
   onClose,
   onSubmit,
 }: QuickCreateModalProps) {
+  const [templateId, setTemplateId] = useState<string>('')
   const [title, setTitle] = useState('')
   const [projectId, setProjectId] = useState<string>('')
   const [priority, setPriority] = useState<Priority>('medium')
@@ -87,6 +112,7 @@ export function QuickCreateModal({
   // Reset form to defaults every time the modal opens.
   useEffect(() => {
     if (!open) return
+    setTemplateId('')
     setTitle('')
     setProjectId(defaultProjectId ?? '')
     setPriority('medium')
@@ -96,6 +122,36 @@ export function QuickCreateModal({
     setBusy(null)
     queueMicrotask(() => titleRef.current?.focus())
   }, [open, defaultProjectId])
+
+  // Apply a template's values to the form. The user can still edit anything
+  // before submitting; the template only pre-fills.
+  const selectedTemplate = templateId
+    ? templates.find((t) => t.id === templateId) ?? null
+    : null
+
+  const resolvedTagIds = selectedTemplate
+    ? resolveTagNames(selectedTemplate.tagNames, tags)
+    : []
+  const subtasksToCreate = selectedTemplate?.subtaskTitles ?? []
+
+  const applyTemplate = (id: string) => {
+    setTemplateId(id)
+    const tpl = templates.find((t) => t.id === id)
+    if (!tpl) return
+    setTitle(tpl.title)
+    setPriority(tpl.priority)
+    titleRef.current?.focus()
+    // Highlight the placeholder so the user can type over `[description]`
+    // / `[Feature name]` immediately.
+    queueMicrotask(() => {
+      const el = titleRef.current
+      if (!el) return
+      const match = tpl.title.match(/\[[^\]]+\]/)
+      if (match && match.index !== undefined) {
+        el.setSelectionRange(match.index, match.index + match[0].length)
+      }
+    })
+  }
 
   // Escape closes — only attach while open so we don't fight other modals.
   useEffect(() => {
@@ -138,6 +194,8 @@ export function QuickCreateModal({
           priority,
           assigneeId,
           dueDate,
+          tags: resolvedTagIds.length > 0 ? resolvedTagIds : undefined,
+          subtasks: subtasksToCreate.length > 0 ? subtasksToCreate : undefined,
         },
         openAfter,
       )
@@ -186,6 +244,47 @@ export function QuickCreateModal({
         </div>
 
         <form onSubmit={handleFormSubmit} className="space-y-3 px-5 py-4">
+          {templates.length > 0 && (
+            <div>
+              <label
+                htmlFor="quick-create-template"
+                className="block text-[10px] font-semibold uppercase tracking-[0.5px] text-[var(--text-muted)]"
+              >
+                Use template
+              </label>
+              <select
+                id="quick-create-template"
+                value={templateId}
+                onChange={(e) => applyTemplate(e.target.value)}
+                aria-label="Use template"
+                className={cn(INPUT_CLASS, 'mt-1')}
+              >
+                <option value="">No template</option>
+                {templates.map((tpl) => (
+                  <option key={tpl.id} value={tpl.id}>
+                    {tpl.name}
+                  </option>
+                ))}
+              </select>
+              {selectedTemplate && (
+                <p className="mt-1 text-[11px] text-[var(--text-muted)]">
+                  +{subtasksToCreate.length}{' '}
+                  {subtasksToCreate.length === 1 ? 'subtask' : 'subtasks'}
+                  {resolvedTagIds.length > 0 && (
+                    <>
+                      {' '}
+                      · +{resolvedTagIds.length}{' '}
+                      {resolvedTagIds.length === 1 ? 'tag' : 'tags'}
+                    </>
+                  )}
+                  {selectedTemplate.title.match(/\[[^\]]+\]/) && (
+                    <> · replace the [placeholder] in the title</>
+                  )}
+                </p>
+              )}
+            </div>
+          )}
+
           <input
             ref={titleRef}
             type="text"

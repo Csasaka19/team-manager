@@ -194,6 +194,21 @@ export const DUE_DATE_PRESETS: DueDatePreset[] = [
   { label: 'No date', resolve: () => null },
 ]
 
+/** "May 28, 2026 at 2:34 PM" — used by the per-item timestamp toggle in feeds. */
+export function formatAbsoluteDateTime(iso: string): string {
+  const d = asDate(iso)
+  const date = d.toLocaleDateString(undefined, {
+    month: 'short',
+    day: 'numeric',
+    year: 'numeric',
+  })
+  const time = d.toLocaleTimeString(undefined, {
+    hour: 'numeric',
+    minute: '2-digit',
+  })
+  return `${date} at ${time}`
+}
+
 /** "just now" / "12m ago" / "3h ago" / "yesterday" / "3d ago" / "May 8". */
 export function relativeTime(iso: string): string {
   const then = asDate(iso).getTime()
