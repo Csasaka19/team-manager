@@ -418,7 +418,7 @@ function NotificationGroupRow({
           <div className="min-w-0 flex-1">
             <p
               className={cn(
-                'text-sm leading-snug',
+                'line-clamp-2 text-sm leading-snug',
                 group.hasUnread
                   ? 'text-[var(--text-primary)]'
                   : 'text-[var(--text-secondary)]',
@@ -557,7 +557,7 @@ function NotificationRow({
       <div className="relative z-10 min-w-0 flex-1 pointer-events-none">
         <p
           className={cn(
-            'text-sm leading-snug',
+            'line-clamp-2 text-sm leading-snug',
             notification.read
               ? 'text-[var(--text-secondary)]'
               : 'text-[var(--text-primary)]',

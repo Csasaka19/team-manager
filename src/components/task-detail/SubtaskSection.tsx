@@ -1,4 +1,4 @@
-import { useMemo, useRef, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import {
   DndContext,
   PointerSensor,
@@ -13,7 +13,7 @@ import {
   sortableKeyboardCoordinates,
   verticalListSortingStrategy,
 } from '@dnd-kit/sortable'
-import { ChevronDown, ChevronRight, Plus } from 'lucide-react'
+import { CheckCircle2, ChevronDown, ChevronRight, Plus, X } from 'lucide-react'
 import { SubtaskRow } from './SubtaskRow'
 import { cn } from '@/lib/utils'
 import type { Subtask, Task, TeamMember } from '@/data/types'
@@ -34,6 +34,11 @@ interface SubtaskSectionProps {
   onChangeAssignee: (subtaskId: string, assigneeId: string | null) => Promise<void>
   onDelete: (subtaskId: string) => Promise<void>
   onReorder: (orderedIds: string[]) => Promise<void>
+  /** When provided, the section renders a "All subtasks complete — move
+   *  this task to Done?" callout once every subtask is checked and the
+   *  parent isn't already Done. Omit to suppress the prompt (e.g. members
+   *  who can't change parent status). */
+  onMoveParentToDone?: () => void
 }
 
 const COMPLETED_HIDE_THRESHOLD = 3
@@ -54,6 +59,7 @@ export function SubtaskSection(props: SubtaskSectionProps) {
     onChangeAssignee,
     onDelete,
     onReorder,
+    onMoveParentToDone,
   } = props
 
   const [newTitle, setNewTitle] = useState('')
@@ -62,6 +68,9 @@ export function SubtaskSection(props: SubtaskSectionProps) {
   // Subtask ID that should mount in edit-mode + focused. Cleared after one
   // render so subsequent re-renders don't keep re-focusing.
   const [focusOnCreateId, setFocusOnCreateId] = useState<string | null>(null)
+  // Local dismissal of the "all subtasks complete" callout — survives
+  // re-renders but resets when the user navigates away and back.
+  const [promptDismissed, setPromptDismissed] = useState(false)
   const addInputRef = useRef<HTMLInputElement>(null)
 
   const sortedByOrder = useMemo(
@@ -80,6 +89,18 @@ export function SubtaskSection(props: SubtaskSectionProps) {
   const done = completed.length
   const pct = total === 0 ? 0 : Math.round((done / total) * 100)
   const allDone = total > 0 && done === total
+
+  // Reset the dismissal whenever the task transitions out of "all done"
+  // (e.g. user unchecks a subtask) — so re-completing later re-prompts.
+  useEffect(() => {
+    if (!allDone) setPromptDismissed(false)
+  }, [allDone])
+
+  const showAllDonePrompt =
+    allDone &&
+    task.status !== 'done' &&
+    !promptDismissed &&
+    typeof onMoveParentToDone === 'function'
 
   // Hide completed subtasks behind a toggle once the pile of finished items
   // gets noisy. Below the threshold they always show, just sorted to the bottom.
@@ -176,6 +197,36 @@ export function SubtaskSection(props: SubtaskSectionProps) {
           pct={pct}
           allDone={allDone}
         />
+      )}
+
+      {showAllDonePrompt && (
+        <div
+          role="status"
+          className="mb-3 flex flex-wrap items-center gap-3 rounded-lg border border-[color-mix(in_srgb,var(--status-done)_40%,transparent)] bg-[color-mix(in_srgb,var(--status-done)_8%,transparent)] px-3 py-2"
+        >
+          <CheckCircle2
+            className="h-4 w-4 shrink-0 text-[var(--status-done)]"
+            aria-hidden="true"
+          />
+          <p className="min-w-0 flex-1 text-sm text-[var(--text-primary)]">
+            All subtasks complete. Move this task to Done?
+          </p>
+          <button
+            type="button"
+            onClick={() => onMoveParentToDone?.()}
+            className="inline-flex h-7 shrink-0 items-center gap-1 rounded-md bg-[var(--status-done)] px-2.5 text-xs font-medium text-[var(--text-inverse)] transition-opacity hover:opacity-90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent-focus)]"
+          >
+            Move to Done
+          </button>
+          <button
+            type="button"
+            onClick={() => setPromptDismissed(true)}
+            aria-label="Dismiss"
+            className="inline-flex h-7 w-7 shrink-0 items-center justify-center rounded text-[var(--text-secondary)] transition-colors hover:bg-[var(--bg-surface)] hover:text-[var(--text-primary)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent-focus)]"
+          >
+            <X className="h-3.5 w-3.5" />
+          </button>
+        </div>
       )}
 
       {total === 0 ? (

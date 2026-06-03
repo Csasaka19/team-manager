@@ -194,6 +194,11 @@ export default function TaskDetailPage() {
         onReorder={(orderedIds) =>
           safeUpdate('subtask order', () => reorderSubtasks(task.id, orderedIds))
         }
+        onMoveParentToDone={
+          canEditTask
+            ? () => void safeUpdate('status', () => updateTask(task.id, { status: 'done' }))
+            : undefined
+        }
       />
 
       <TagsSection
