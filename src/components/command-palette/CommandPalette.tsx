@@ -18,12 +18,13 @@ import {
 import { StatusPill } from '@/components/shared/StatusPill'
 import { useAuth } from '@/data/auth'
 import { useData } from '@/data/store'
+import { useFocusTrap } from '@/hooks/useFocusTrap'
 import { SHORTCUTS, type ShortcutKey } from '@/lib/shortcuts'
 import { cn } from '@/lib/utils'
 import type { Project, Task, TeamMember } from '@/data/types'
 
 const MAX_PER_GROUP = 5
-const DEBOUNCE_MS = 200
+const DEBOUNCE_MS = 300
 
 interface CommandPaletteProps {
   open: boolean
@@ -114,6 +115,8 @@ export function CommandPalette({ open, onClose, onCreateTask }: CommandPalettePr
   const [query, setQuery] = useState('')
   const [highlight, setHighlight] = useState(0)
   const inputRef = useRef<HTMLInputElement>(null)
+  const panelRef = useRef<HTMLDivElement>(null)
+  useFocusTrap(panelRef, open)
 
   useEffect(() => {
     if (open) {
@@ -299,7 +302,10 @@ export function CommandPalette({ open, onClose, onCreateTask }: CommandPalettePr
         aria-hidden="true"
       />
 
-      <div className="relative w-full max-w-[480px] overflow-hidden rounded-xl border border-[var(--border-default)] bg-[var(--bg-elevated)] shadow-[0_4px_16px_rgba(0,0,0,0.3)]">
+      <div
+        ref={panelRef}
+        className="relative w-full max-w-[480px] animate-[modalIn_200ms_ease-out] overflow-hidden rounded-xl border border-[var(--border-default)] bg-[var(--bg-elevated)] shadow-[0_4px_16px_rgba(0,0,0,0.3)]"
+      >
         <div className="flex items-center gap-3 border-b border-[var(--border-subtle)] px-4 py-3">
           <Search
             className="h-4 w-4 shrink-0 text-[var(--text-muted)]"

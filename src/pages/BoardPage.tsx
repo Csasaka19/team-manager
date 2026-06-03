@@ -24,8 +24,10 @@ import { TaskCard, type SelectModifiers } from '@/components/board/TaskCard'
 import { TaskListView } from '@/components/board/TaskListView'
 import { ViewToggle } from '@/components/board/ViewToggle'
 import { ConfirmModal } from '@/components/shared/ConfirmModal'
+import { SkeletonCard, SkeletonLine } from '@/components/shared/Skeleton'
 import { useAuth } from '@/data/auth'
 import { useData } from '@/data/store'
+import { useDocumentTitle } from '@/hooks/useDocumentTitle'
 import { useKeyboardShortcuts } from '@/hooks/useKeyboardShortcuts'
 import { loadBoardView, saveBoardView, type BoardView } from '@/lib/board-view'
 import type { LayoutOutletContext } from '@/components/layout/Layout'
@@ -39,6 +41,7 @@ const PRIORITY_BY_KEY: Record<string, Priority> = {
 }
 
 export default function BoardPage() {
+  useDocumentTitle('Board')
   const { currentUser, isPM } = useAuth()
   const {
     tasks,
@@ -49,6 +52,7 @@ export default function BoardPage() {
     bulkDeleteTasks,
     columnOrder,
     statusLabels,
+    isInitialLoading,
   } = useData()
   const [searchParams] = useSearchParams()
   const { openCreateTask } = useOutletContext<LayoutOutletContext>()
@@ -402,6 +406,10 @@ export default function BoardPage() {
     [teamMembers],
   )
 
+  if (isInitialLoading) {
+    return <BoardSkeleton columnOrder={columnOrder} />
+  }
+
   return (
     <div className="space-y-4 md:space-y-6">
       <header className="flex flex-wrap items-start justify-between gap-3">
@@ -523,6 +531,44 @@ export default function BoardPage() {
         onConfirm={handleBulkDelete}
         onCancel={() => setBulkConfirmOpen(false)}
       />
+    </div>
+  )
+}
+
+function BoardSkeleton({ columnOrder }: { columnOrder: TaskStatus[] }) {
+  return (
+    <div className="space-y-4 md:space-y-6">
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <div>
+          <SkeletonLine width="w-24" height="h-7" />
+          <SkeletonLine width="w-64" height="h-3" className="mt-2" />
+        </div>
+      </div>
+      <div className="-mx-4 overflow-x-auto px-4 md:mx-0 md:px-0">
+        <div className="flex gap-3 md:gap-4">
+          {columnOrder.map((status) => (
+            <div
+              key={status}
+              className="flex w-[280px] shrink-0 flex-col md:min-w-[280px] md:flex-1"
+            >
+              <SkeletonLine width="w-20" height="h-3" className="mb-3" />
+              <div className="flex flex-col gap-2">
+                {Array.from({ length: 3 }).map((_, i) => (
+                  <SkeletonCard key={i}>
+                    <SkeletonLine width="w-16" height="h-2" />
+                    <SkeletonLine height="h-4" className="mt-2" />
+                    <SkeletonLine width="w-5/6" height="h-4" className="mt-1" />
+                    <div className="mt-3 flex items-center justify-between">
+                      <SkeletonLine width="w-14" height="h-4" />
+                      <SkeletonLine width="w-6" height="h-6" className="rounded-full" />
+                    </div>
+                  </SkeletonCard>
+                ))}
+              </div>
+            </div>
+          ))}
+        </div>
+      </div>
     </div>
   )
 }

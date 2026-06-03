@@ -1,5 +1,6 @@
 import { useEffect, useRef } from 'react'
 import { X } from 'lucide-react'
+import { useFocusTrap } from '@/hooks/useFocusTrap'
 import { cn } from '@/lib/utils'
 
 interface ConfirmModalProps {
@@ -24,6 +25,8 @@ export function ConfirmModal({
   onCancel,
 }: ConfirmModalProps) {
   const confirmRef = useRef<HTMLButtonElement>(null)
+  const panelRef = useRef<HTMLDivElement>(null)
+  useFocusTrap(panelRef, open)
 
   useEffect(() => {
     if (!open) return
@@ -49,7 +52,10 @@ export function ConfirmModal({
         onClick={onCancel}
         aria-hidden="true"
       />
-      <div className="relative max-h-[calc(100vh-3rem)] w-full max-w-[480px] overflow-y-auto rounded-xl border border-[var(--border-subtle)] bg-[var(--bg-surface)] p-5 shadow-[0_4px_16px_rgba(0,0,0,0.3)] md:p-6">
+      <div
+        ref={panelRef}
+        className="relative max-h-[calc(100vh-3rem)] w-full max-w-[480px] animate-[modalIn_200ms_ease-out] overflow-y-auto rounded-xl border border-[var(--border-subtle)] bg-[var(--bg-surface)] p-5 shadow-[0_4px_16px_rgba(0,0,0,0.3)] md:p-6"
+      >
         <div className="flex items-start justify-between gap-3">
           <h2
             id="confirm-modal-title"

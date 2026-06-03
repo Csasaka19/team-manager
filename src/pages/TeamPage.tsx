@@ -6,11 +6,13 @@ import { InviteMemberModal } from '@/components/team/InviteMemberModal'
 import { TeamMemberCard } from '@/components/team/TeamMemberCard'
 import { useAuth } from '@/data/auth'
 import { useData } from '@/data/store'
+import { useDocumentTitle } from '@/hooks/useDocumentTitle'
 import type { Role, Task, TeamMember } from '@/data/types'
 
 const ACTIVE_STATUSES = ['todo', 'in_progress', 'in_review'] as const
 
 export default function TeamPage() {
+  useDocumentTitle('Team')
   const { currentUser, isPM } = useAuth()
   const { teamMembers, tasks, inviteTeamMember, removeTeamMember } = useData()
 

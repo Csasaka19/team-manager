@@ -5,8 +5,10 @@ import { TagsSection } from '@/components/settings/TagsSection'
 import { TaskTemplatesSection } from '@/components/settings/TaskTemplatesSection'
 import { WorkspaceSection } from '@/components/settings/WorkspaceSection'
 import { useAuth } from '@/data/auth'
+import { useDocumentTitle } from '@/hooks/useDocumentTitle'
 
 export default function SettingsPage() {
+  useDocumentTitle('Settings')
   const { isPM } = useAuth()
 
   return (

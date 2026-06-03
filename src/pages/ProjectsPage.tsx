@@ -10,6 +10,7 @@ import {
 } from '@/components/projects/ProjectFormModal'
 import { useAuth } from '@/data/auth'
 import { useData } from '@/data/store'
+import { useDocumentTitle } from '@/hooks/useDocumentTitle'
 import { cn } from '@/lib/utils'
 import type { Project, TeamMember } from '@/data/types'
 
@@ -17,6 +18,7 @@ type Tab = 'active' | 'archived'
 type Confirm = { kind: 'archive' | 'delete'; project: Project } | null
 
 export default function ProjectsPage() {
+  useDocumentTitle('Projects')
   const { isPM } = useAuth()
   const { projects, tasks, teamMembers, createProject, updateProject, deleteProject } =
     useData()

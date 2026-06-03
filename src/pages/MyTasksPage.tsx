@@ -5,8 +5,10 @@ import {
   TaskSection,
   type MyTaskEntry,
 } from '@/components/my-tasks/TaskSection'
+import { SkeletonCard, SkeletonLine } from '@/components/shared/Skeleton'
 import { useAuth } from '@/data/auth'
 import { useData } from '@/data/store'
+import { useDocumentTitle } from '@/hooks/useDocumentTitle'
 import type { Project, Task } from '@/data/types'
 import {
   daysBetween,
@@ -27,8 +29,9 @@ const PRIORITY_RANK: Record<Task['priority'], number> = {
 }
 
 export default function MyTasksPage() {
+  useDocumentTitle('My Tasks')
   const { currentUser } = useAuth()
-  const { tasks, projects } = useData()
+  const { tasks, projects, isInitialLoading } = useData()
   const [showCompleted, setShowCompleted] = useState(false)
 
   const projectById = useMemo<Map<string, Project>>(
@@ -62,6 +65,10 @@ export default function MyTasksPage() {
 
   if (!currentUser) {
     return null
+  }
+
+  if (isInitialLoading) {
+    return <MyTasksSkeleton />
   }
 
   // "My tasks" excludes Done from the main buckets, so the no-tasks-assigned
@@ -125,6 +132,32 @@ export default function MyTasksPage() {
           completedStyle
         />
       )}
+    </div>
+  )
+}
+
+function MyTasksSkeleton() {
+  return (
+    <div className="space-y-6 md:space-y-8">
+      <SkeletonLine width="w-32" height="h-7" />
+      {Array.from({ length: 3 }).map((_, section) => (
+        <div key={section}>
+          <SkeletonLine width="w-28" height="h-5" className="mb-3" />
+          <div className="flex flex-col gap-2">
+            {Array.from({ length: 3 }).map((__, row) => (
+              <SkeletonCard key={row}>
+                <div className="flex items-start gap-3">
+                  <SkeletonLine width="w-5" height="h-5" className="rounded" />
+                  <div className="flex-1 space-y-2">
+                    <SkeletonLine height="h-4" />
+                    <SkeletonLine width="w-32" height="h-3" />
+                  </div>
+                </div>
+              </SkeletonCard>
+            ))}
+          </div>
+        </div>
+      ))}
     </div>
   )
 }

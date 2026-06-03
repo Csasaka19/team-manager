@@ -206,3 +206,17 @@
     box-shadow: 0 0 0 4px color-mix(in srgb, var(--status-done) 30%, transparent);
   }
 }
+
+/* Page-content fade applied to the route's outlet wrapper. Keyed by
+   pathname so the animation replays on every navigation. */
+@keyframes fadeIn {
+  from { opacity: 0; }
+  to   { opacity: 1; }
+}
+
+/* Modal scale-in. Combined opacity + scale so the dialog feels like it
+   "pops" into existence without flying from the corner. */
+@keyframes modalIn {
+  from { opacity: 0; transform: scale(0.95); }
+  to   { opacity: 1; transform: scale(1); }
+}

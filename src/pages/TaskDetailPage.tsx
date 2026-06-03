@@ -11,6 +11,7 @@ import { TaskHeader } from '@/components/task-detail/TaskHeader'
 import { ConfirmModal } from '@/components/shared/ConfirmModal'
 import { useAuth } from '@/data/auth'
 import { useData } from '@/data/store'
+import { useDocumentTitle } from '@/hooks/useDocumentTitle'
 import { useKeyboardShortcuts } from '@/hooks/useKeyboardShortcuts'
 import type { Priority, Subtask, TaskStatus } from '@/data/types'
 
@@ -53,6 +54,7 @@ export default function TaskDetailPage() {
 
   const task = tasks.find((t) => t.id === taskId)
   const [confirmOpen, setConfirmOpen] = useState(false)
+  useDocumentTitle(task ? task.title : 'Task not found')
 
   useKeyboardShortcuts([
     {
@@ -112,6 +114,10 @@ export default function TaskDetailPage() {
         </button>
       </div>
 
+      {/* TaskHeader sticks under the top bar (h-14) + the page's top
+          padding so its title + status/priority/assignee/due controls
+          stay reachable while scrolling subtasks and comments. */}
+      <div className="sticky top-14 z-10 -mx-4 bg-[var(--bg-base)] px-4 pb-4 pt-2 md:-mx-6 md:px-6 lg:-mx-8 lg:px-8">
       <TaskHeader
         task={task}
         project={project}
@@ -140,6 +146,7 @@ export default function TaskDetailPage() {
         }
         onDelete={() => setConfirmOpen(true)}
       />
+      </div>
 
       <DescriptionEditor
         value={task.description}

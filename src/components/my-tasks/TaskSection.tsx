@@ -31,7 +31,9 @@ export function TaskSection({
 
   return (
     <section aria-label={title}>
-      <div className="mb-3 flex items-center gap-2">
+      {/* Section heading sticks under the 56 px top bar so the user can
+          scan which bucket they're in while scrolling a long queue. */}
+      <div className="sticky top-14 z-10 -mx-4 mb-3 flex items-center gap-2 bg-[var(--bg-base)] px-4 py-2 md:-mx-6 md:px-6 lg:-mx-8 lg:px-8">
         <h2 className="text-lg font-semibold text-[var(--text-primary)]">{title}</h2>
         {tasks.length > 0 && (
           <span className="text-xs text-[var(--text-muted)] tabular-nums">

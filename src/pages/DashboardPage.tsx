@@ -19,8 +19,10 @@ import {
   ActivityFeed,
   type ActivityFilter,
 } from '@/components/dashboard/ActivityFeed'
+import { SkeletonCard, SkeletonLine } from '@/components/shared/Skeleton'
 import { useAuth } from '@/data/auth'
 import { useData } from '@/data/store'
+import { useDocumentTitle } from '@/hooks/useDocumentTitle'
 import { STATUS_LABELS, type Task } from '@/data/types'
 import {
   daysBetween,
@@ -44,8 +46,10 @@ const FILTER_OPTIONS: Array<{ value: ActivityFilter; label: string }> = [
 ]
 
 export default function DashboardPage() {
+  useDocumentTitle('Dashboard')
   const { currentUser } = useAuth()
-  const { tasks, projects, activities, teamMembers } = useData()
+  const { tasks, projects, activities, teamMembers, isInitialLoading } =
+    useData()
 
   const summary = useMemo(() => computeSummary(tasks), [tasks])
   const attention = useMemo(
@@ -79,6 +83,10 @@ export default function DashboardPage() {
     [filteredActivities, activityLimit],
   )
   const canLoadMore = filteredActivities.length > visibleActivities.length
+
+  if (isInitialLoading) {
+    return <DashboardSkeleton />
+  }
 
   if (projects.length === 0) {
     return <EmptyDashboard />
@@ -177,6 +185,40 @@ export default function DashboardPage() {
           </div>
         )}
       </CollapsibleSection>
+    </div>
+  )
+}
+
+function DashboardSkeleton() {
+  return (
+    <div className="space-y-6 md:space-y-8">
+      <div>
+        <SkeletonLine width="w-40" height="h-7" />
+        <SkeletonLine width="w-72" height="h-3" className="mt-2" />
+      </div>
+      <div className="grid grid-cols-1 gap-3 md:grid-cols-2 md:gap-4 lg:grid-cols-4">
+        {Array.from({ length: 4 }).map((_, i) => (
+          <SkeletonCard key={i} className="md:p-5">
+            <SkeletonLine width="w-6" height="h-6" />
+            <SkeletonLine width="w-12" height="h-7" className="mt-3" />
+            <SkeletonLine width="w-24" height="h-3" className="mt-3" />
+          </SkeletonCard>
+        ))}
+      </div>
+      <div className="space-y-2">
+        <SkeletonLine width="w-32" height="h-5" />
+        <div className="-mx-4 overflow-x-auto px-4 md:mx-0 md:px-0">
+          <div className="flex gap-3">
+            {Array.from({ length: 3 }).map((_, i) => (
+              <SkeletonCard key={i} className="w-[200px] shrink-0">
+                <SkeletonLine width="w-28" height="h-4" />
+                <SkeletonLine width="w-14" height="h-14" className="mx-auto mt-3 rounded-full" />
+                <SkeletonLine width="w-20" height="h-3" className="mx-auto mt-3" />
+              </SkeletonCard>
+            ))}
+          </div>
+        </div>
+      </div>
     </div>
   )
 }

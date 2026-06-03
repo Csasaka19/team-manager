@@ -80,7 +80,7 @@ export function InviteMemberModal({
         onClick={onClose}
         aria-hidden="true"
       />
-      <div className="relative max-h-[calc(100vh-3rem)] w-full max-w-[440px] overflow-y-auto rounded-xl border border-[var(--border-subtle)] bg-[var(--bg-surface)] shadow-[0_4px_16px_rgba(0,0,0,0.3)]">
+      <div className="relative max-h-[calc(100vh-3rem)] w-full max-w-[440px] animate-[modalIn_200ms_ease-out] overflow-y-auto rounded-xl border border-[var(--border-subtle)] bg-[var(--bg-surface)] shadow-[0_4px_16px_rgba(0,0,0,0.3)]">
         <div className="flex items-start justify-between gap-3 border-b border-[var(--border-subtle)] px-6 py-4">
           <h2
             id="invite-modal-title"

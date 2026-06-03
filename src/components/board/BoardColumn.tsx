@@ -78,7 +78,10 @@ export function BoardColumn({
       aria-label={`${statusLabels[status]} column`}
       className="flex w-[280px] shrink-0 flex-col md:w-auto md:min-w-[280px] md:flex-1"
     >
-      <header className="mb-2 flex items-center gap-2 px-1">
+      {/* Sticky top-14 keeps the column heading in view while scrolling a
+          long column — top-14 = under the 56 px TopBar. The bg+padding
+          prevents cards from showing through. */}
+      <header className="sticky top-14 z-10 mb-2 flex items-center gap-2 bg-[var(--bg-base)] px-1 py-1">
         <h2 className="text-xs font-semibold uppercase tracking-[0.5px] text-[var(--text-secondary)]">
           {statusLabels[status]}
         </h2>

@@ -32,6 +32,7 @@ required to demo. Drop in a real API later and the UI doesn't need to change.
 - [Task templates](#task-templates)
 - [Subtasks](#subtasks)
 - [PM dashboard](#pm-dashboard)
+- [Polish & a11y](#polish--a11y)
 - [Bulk actions](#bulk-actions)
 - [Board view modes](#board-view-modes)
 - [Due dates](#due-dates)
@@ -708,6 +709,90 @@ in the regular board / list views.
 - `src/components/dashboard/WeekTimeline.tsx` (column grid + day cells)
 - `src/pages/DashboardPage.tsx` (composition + persisted activity
   filter / paginate controls slot into the Activity section)
+
+---
+
+## Polish & a11y
+
+The full polish pass shipped in `9cf...`. Highlights:
+
+### Skeleton loaders
+
+`DataProvider` exposes an `isInitialLoading` boolean that flips from
+`true` to `false` ~500 ms after mount. Three pages opt in:
+
+- **Dashboard** — skeleton header + 4 summary cards + the projects-glance strip
+- **Board** — column headers + 3 skeleton cards per column
+- **My Tasks** — section headers + 3 skeleton rows per section
+
+The shared primitives in `src/components/shared/Skeleton.tsx`
+(`<SkeletonLine>`, `<SkeletonCard>`) are reusable for whatever future
+fetches land.
+
+### Transitions
+
+- Page-to-page: `<Outlet />` is keyed on `pathname` inside a wrapper
+  with `animate-[fadeIn_150ms_ease-out]` — content fades in on every
+  navigation; the sidebar and top bar stay still.
+- Modals: every dialog panel gets `animate-[modalIn_200ms_ease-out]`
+  (opacity 0 → 1, scale 0.95 → 1). Backdrop opacity is instant.
+- Toasts: sonner's default slide-in-from-right, theme-bound.
+
+### Error boundaries
+
+`src/components/shared/ErrorBoundary.tsx` wraps the `<Outlet />` inside
+`Layout`. A crashing page falls back to a centered "Something went
+wrong on this page." + `Reload` button (full page reload). The
+sidebar, top bar, command palette, notifications bell, and modals
+keep working — the user is never stranded.
+
+### Page titles & favicon
+
+`useDocumentTitle(title)` (`src/hooks/useDocumentTitle.ts`) sets
+`document.title = "<title> — Team Manager"` per page:
+
+| Page | Title |
+|---|---|
+| Login | `Login — Team Manager` |
+| Dashboard | `Dashboard — Team Manager` |
+| Board | `Board — Team Manager` |
+| My Tasks | `My Tasks — Team Manager` |
+| Task detail | `<Task title> — Team Manager` |
+| Projects | `Projects — Team Manager` |
+| Team | `Team — Team Manager` |
+| Settings | `Settings — Team Manager` |
+| 404 | `Not found — Team Manager` |
+
+Favicon: a 32 × 32 SVG with "TM" white on the accent blue, served via
+`/favicon.svg`.
+
+### Sticky headers
+
+| Surface | Sticks at |
+|---|---|
+| Board column header (status + count) | `top-14` |
+| Task detail header (title, status, priority, assignee, due date) | `top-14` |
+| My Tasks section heading (`Due Today`, `This Week`, `Upcoming`) | `top-14` |
+
+`top-14` = under the 56 px top bar. Each sticky header gets the page
+background so cards don't ghost through.
+
+### Focus management
+
+- **`useFocusTrap`** (`src/hooks/useFocusTrap.ts`) — caches the
+  previously-focused element on modal open, focuses the first
+  focusable inside the dialog, traps Tab / Shift+Tab, restores focus
+  on close. Wired into the four most-used modals: `ConfirmModal`,
+  `QuickCreateModal`, `CommandPalette`, `ShortcutsHelp`.
+- **Heading focus on route change** — Layout uses a
+  `queueMicrotask` after each navigation to set focus on the new
+  page's `h1` (with `tabindex=-1` so it's reachable without entering
+  the Tab order). Screen readers announce the page change cleanly.
+
+### Debounced inputs
+
+The command palette debounces its search input at **300 ms** (raised
+from 200), matching the spec's threshold for fast-typist filtering.
 
 ---
 

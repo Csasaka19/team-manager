@@ -1,8 +1,10 @@
 import { Link } from 'react-router-dom'
 import { Compass } from 'lucide-react'
 import { homePathForRole, useAuth } from '@/data/auth'
+import { useDocumentTitle } from '@/hooks/useDocumentTitle'
 
 export default function NotFoundPage() {
+  useDocumentTitle('Not found')
   const { currentUser } = useAuth()
   const homePath = currentUser ? homePathForRole(currentUser.role) : '/login'
   const homeLabel = currentUser

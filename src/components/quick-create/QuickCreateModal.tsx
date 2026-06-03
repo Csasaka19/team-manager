@@ -11,6 +11,7 @@ import {
 } from 'lucide-react'
 import { Avatar } from '@/components/shared/Avatar'
 import { DueDatePicker as SharedDueDatePicker } from '@/components/shared/DueDatePicker'
+import { useFocusTrap } from '@/hooks/useFocusTrap'
 import { formatRelativeDueDate } from '@/lib/date-utils'
 import { cn } from '@/lib/utils'
 import {
@@ -108,6 +109,8 @@ export function QuickCreateModal({
 
   const activeProjects = projects.filter((p) => !p.archived)
   const titleRef = useRef<HTMLInputElement>(null)
+  const panelRef = useRef<HTMLDivElement>(null)
+  useFocusTrap(panelRef, open)
 
   // Reset form to defaults every time the modal opens.
   useEffect(() => {
@@ -225,7 +228,10 @@ export function QuickCreateModal({
         aria-hidden="true"
       />
 
-      <div className="relative max-h-[calc(100vh-2rem)] w-full max-w-[480px] overflow-hidden rounded-xl border border-[var(--border-default)] bg-[var(--bg-elevated)] shadow-[0_4px_16px_rgba(0,0,0,0.3)]">
+      <div
+        ref={panelRef}
+        className="relative max-h-[calc(100vh-2rem)] w-full max-w-[480px] animate-[modalIn_200ms_ease-out] overflow-hidden rounded-xl border border-[var(--border-default)] bg-[var(--bg-elevated)] shadow-[0_4px_16px_rgba(0,0,0,0.3)]"
+      >
         <div className="flex items-center justify-between gap-3 border-b border-[var(--border-subtle)] px-5 py-3">
           <h2
             id="quick-create-title"

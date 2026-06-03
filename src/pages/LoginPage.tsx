@@ -2,6 +2,7 @@ import { useEffect, useState, type FormEvent } from 'react'
 import { Navigate, useLocation, useNavigate } from 'react-router-dom'
 import { Loader2 } from 'lucide-react'
 import { homePathForRole, useAuth } from '@/data/auth'
+import { useDocumentTitle } from '@/hooks/useDocumentTitle'
 import { cn } from '@/lib/utils'
 
 interface LocationState {
@@ -9,6 +10,7 @@ interface LocationState {
 }
 
 export default function LoginPage() {
+  useDocumentTitle('Login')
   const { isAuthenticated, currentUser, login } = useAuth()
   const navigate = useNavigate()
   const location = useLocation()

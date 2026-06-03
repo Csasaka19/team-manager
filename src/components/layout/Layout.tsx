@@ -6,6 +6,7 @@ import {
   QuickCreateModal,
   type QuickCreateValues,
 } from '@/components/quick-create/QuickCreateModal'
+import { ErrorBoundary } from '@/components/shared/ErrorBoundary'
 import { ShortcutsButton } from '@/components/shared/ShortcutsButton'
 import { ShortcutsHelp } from '@/components/shared/ShortcutsHelp'
 import { useAuth } from '@/data/auth'
@@ -67,6 +68,19 @@ export function Layout() {
   // Close mobile drawer when the route changes.
   useEffect(() => {
     setMobileOpen(false)
+  }, [location.pathname])
+
+  // Move screen-reader focus to the page's h1 after each navigation so
+  // assistive tech announces the new context. Uses an h1 selector + a
+  // queueMicrotask so the new page has had a chance to render.
+  useEffect(() => {
+    queueMicrotask(() => {
+      const heading = document.querySelector<HTMLElement>('main h1')
+      if (!heading) return
+      // tabindex=-1 makes it focusable without adding to the Tab order.
+      heading.setAttribute('tabindex', '-1')
+      heading.focus({ preventScroll: true })
+    })
   }, [location.pathname])
 
   // Daily overdue digest to Discord — runs once per session when the user
@@ -208,8 +222,16 @@ export function Layout() {
       />
 
       <main className="md:pl-16 lg:pl-60 pt-14">
-        <div className="mx-auto w-full max-w-[1200px] px-4 py-6 md:px-6 md:py-8 lg:px-8">
-          <Outlet context={outletContext} />
+        {/* Key on pathname so the fadeIn keyframe replays on every route
+            change. ErrorBoundary is scoped here so a crashing page leaves
+            the sidebar + top bar alive. */}
+        <div
+          key={location.pathname}
+          className="mx-auto w-full max-w-[1200px] animate-[fadeIn_150ms_ease-out] px-4 py-6 md:px-6 md:py-8 lg:px-8"
+        >
+          <ErrorBoundary>
+            <Outlet context={outletContext} />
+          </ErrorBoundary>
         </div>
       </main>
 

@@ -50,6 +50,14 @@ import {
 
 const MUTATION_DELAY_MS = 800
 
+/**
+ * Brief artificial gate at provider mount so pages can render skeleton
+ * loaders against a real signal. The mock data is otherwise synchronous,
+ * which would make every page render instantly with no opportunity to
+ * show a loading state.
+ */
+const INITIAL_LOAD_DELAY_MS = 500
+
 const WORKSPACE_NAME_KEY = 'team-manager.workspace-name'
 const STATUS_LABEL_OVERRIDES_KEY = 'team-manager.status-label-overrides'
 const COLUMN_ORDER_KEY = 'team-manager.column-order'
@@ -221,6 +229,10 @@ export interface DataStore {
   notifications: Notification[]
   /** True while at least one mutation is in flight. */
   mutating: boolean
+  /** True for ~500 ms after the provider mounts — gives pages something to
+   *  show a skeleton against. Real backend will replace this with the
+   *  network loading state. */
+  isInitialLoading: boolean
   /** Workspace settings — persisted to localStorage so changes outlive a reload. */
   workspaceName: string
   /** Display labels for each canonical status, merged from defaults + user overrides. */
@@ -321,6 +333,15 @@ export function DataProvider({ children }: { children: ReactNode }) {
   const [activities, setActivities] = useState<Activity[]>(mockActivities)
   const [notifications, setNotifications] = useState<Notification[]>(mockNotifications)
   const [inflight, setInflight] = useState(0)
+  const [isInitialLoading, setIsInitialLoading] = useState(true)
+
+  useEffect(() => {
+    const handle = window.setTimeout(
+      () => setIsInitialLoading(false),
+      INITIAL_LOAD_DELAY_MS,
+    )
+    return () => window.clearTimeout(handle)
+  }, [])
 
   // Persisted workspace settings.
   const [workspaceName, setWorkspaceNameState] = useState<string>(() =>
@@ -1344,6 +1365,7 @@ export function DataProvider({ children }: { children: ReactNode }) {
       activities,
       notifications,
       mutating: inflight > 0,
+      isInitialLoading,
       workspaceName,
       statusLabels,
       columnOrder,
@@ -1389,6 +1411,7 @@ export function DataProvider({ children }: { children: ReactNode }) {
       activities,
       notifications,
       inflight,
+      isInitialLoading,
       workspaceName,
       statusLabels,
       columnOrder,
