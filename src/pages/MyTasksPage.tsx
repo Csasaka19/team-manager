@@ -78,7 +78,7 @@ export default function MyTasksPage() {
   }
 
   return (
-    <div className="space-y-6 md:space-y-8">
+    <div data-tour="my-tasks-list" className="space-y-6 md:space-y-8">
       <header className="flex flex-wrap items-start justify-between gap-3">
         <div>
           <h1 className="text-2xl font-semibold text-[var(--text-primary)]">My Tasks</h1>

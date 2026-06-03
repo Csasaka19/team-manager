@@ -6,6 +6,7 @@ import {
   QuickCreateModal,
   type QuickCreateValues,
 } from '@/components/quick-create/QuickCreateModal'
+import { OnboardingTour } from '@/components/onboarding/OnboardingTour'
 import { ErrorBoundary } from '@/components/shared/ErrorBoundary'
 import { ShortcutsButton } from '@/components/shared/ShortcutsButton'
 import { ShortcutsHelp } from '@/components/shared/ShortcutsHelp'
@@ -257,6 +258,8 @@ export function Layout() {
         onClose={() => setHelpOpen(false)}
         isPM={isPM}
       />
+
+      {currentUser && <OnboardingTour />}
 
       {currentUser && isPM && !anyModalOpen && (
         <QuickCreateFab onClick={() => openCreateTask()} />

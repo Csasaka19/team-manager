@@ -1,10 +1,11 @@
 import { useState } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { LogOut } from 'lucide-react'
+import { LogOut, Sparkles } from 'lucide-react'
 import { toast } from 'sonner'
 import { Avatar } from '@/components/shared/Avatar'
 import { useAuth } from '@/data/auth'
 import { useData } from '@/data/store'
+import { clearOnboardingSeen } from '@/lib/onboarding'
 
 export function AccountSection() {
   const navigate = useNavigate()
@@ -37,6 +38,11 @@ export function AccountSection() {
     logout()
     toast.success('Logged out.')
     navigate('/login', { replace: true })
+  }
+
+  const handleReplayTour = () => {
+    clearOnboardingSeen(currentUser.id)
+    toast.success('Tour reset — watch the bottom-left.')
   }
 
   return (
@@ -106,6 +112,17 @@ export function AccountSection() {
           <p className="mt-1 text-xs text-[var(--text-muted)]">
             Contact your workspace admin to change your email.
           </p>
+        </div>
+
+        <div className="border-t border-[var(--border-subtle)] pt-4">
+          <button
+            type="button"
+            onClick={handleReplayTour}
+            className="inline-flex h-8 items-center gap-1.5 rounded text-sm font-medium text-[var(--accent-primary)] transition-colors hover:text-[var(--accent-hover)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent-focus)]"
+          >
+            <Sparkles className="h-3.5 w-3.5" aria-hidden="true" />
+            Replay onboarding tour
+          </button>
         </div>
 
         <div className="border-t border-[var(--border-subtle)] pt-4">

@@ -33,6 +33,7 @@ required to demo. Drop in a real API later and the UI doesn't need to change.
 - [Subtasks](#subtasks)
 - [PM dashboard](#pm-dashboard)
 - [Data export](#data-export)
+- [Onboarding tour](#onboarding-tour)
 - [Polish & a11y](#polish--a11y)
 - [Bulk actions](#bulk-actions)
 - [Board view modes](#board-view-modes)
@@ -745,6 +746,73 @@ when a real one replaces `now()`.
 Filenames stamp the demo date: `team-manager-tasks-2026-05-22.csv`,
 `team-manager-projects-...`, `team-manager-team-...`. A
 `toast.success("Exported <filename>")` confirms each download.
+
+---
+
+## Onboarding tour
+
+First-login welcome tour — non-blocking, dismissable, role-specific.
+The whole app stays interactive behind it. Settings has a "Replay
+onboarding tour" link in the Account section to bring it back.
+
+### Trigger and persistence
+
+`team-manager.onboarding.<userId>` in `localStorage` marks the
+"seen" state. Missing = first run. The tour mounts inside `Layout`
+and watches `currentUser`; switching users (or logging in as a brand-
+new account) re-checks the flag for that user.
+
+### Steps
+
+PMs land on `/dashboard` and see four steps:
+
+1. **Your dashboard** — highlights the summary cards row
+2. **Get around** — highlights the sidebar
+3. **Quick search & actions** — mentions `Cmd+K` (no highlight)
+4. **Create fast** — mentions `C` (no highlight); final button reads **Got it!**
+
+Members land on `/my-tasks` and see three steps:
+
+1. **Your task list** — highlights the task list
+2. **Task details** — explains the task detail page
+3. **Quick search** — mentions `Cmd+K`; final button reads **Let's go!**
+
+The card sits bottom-left, ~360px wide, with progress dots and a
+Next / final-label button. An `X` in the header dismisses at any
+step.
+
+### Visual highlight
+
+A `.tour-highlight` class adds a gentle 2s `tourPulse` keyframe
+(accent-blue halo) around the target element. The target is found
+by a `data-tour="…"` attribute on the page:
+
+- `data-tour="summary"` → Dashboard summary grid
+- `data-tour="sidebar"` → Sidebar nav
+- `data-tour="my-tasks-list"` → My Tasks page container
+
+If the page is still in its initial-load skeleton when the step
+mounts, the tour retries the selector after 600 ms (just past the
+500 ms `isInitialLoading` gate) so the highlight still lands.
+
+### Replay
+
+Settings → Account → **Replay onboarding tour**:
+
+- Removes the localStorage flag (`clearOnboardingSeen`)
+- Dispatches a `team-manager:onboarding-replay` CustomEvent
+- The live `OnboardingTour` component listens and resets to step 0
+
+No page reload needed — the tour reappears immediately.
+
+### Where the code lives
+
+- `src/lib/onboarding.ts` — flag helpers, step definitions per role,
+  replay event constant
+- `src/components/onboarding/OnboardingTour.tsx` — the floating card
+- `src/index.css` — `tourPulse` keyframe + `.tour-highlight` class
+- `data-tour` attributes on `DashboardPage`, `Sidebar`, `MyTasksPage`
+- Settings → Account section hosts the Replay button
 
 ---
 

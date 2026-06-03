@@ -75,7 +75,7 @@ export function Sidebar({ mobileOpen, onMobileClose }: SidebarProps) {
           </span>
         </div>
 
-        <nav className="flex-1 overflow-y-auto py-3">
+        <nav data-tour="sidebar" className="flex-1 overflow-y-auto py-3">
           <ul className="space-y-1 px-2">
             {primaryItems.map((item) => (
               <li key={item.to}>
