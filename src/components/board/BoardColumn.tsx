@@ -14,6 +14,9 @@ interface BoardColumnProps {
   tasks: Task[]
   projectById: Map<string, Project>
   memberById: Map<string, TeamMember>
+  /** Unresolved-question count per task — flows through to TaskCard's
+   *  small "❓ N" badge. */
+  unresolvedQuestionsByTask?: Map<string, number>
   /** True when the active drag started anywhere (used to draw drop-target hint). */
   draggingTaskId: string | null
   /** Function deciding whether the current user can drag a given task. */
@@ -35,6 +38,7 @@ export function BoardColumn({
   tasks,
   projectById,
   memberById,
+  unresolvedQuestionsByTask,
   draggingTaskId,
   canDragTask,
   selectedTaskId,
@@ -123,6 +127,7 @@ export function BoardColumn({
                 bulkSelected={bulkSelection?.has(task.id) ?? false}
                 selectionActive={selectionActive}
                 onSelectToggle={onSelectToggle}
+                unresolvedQuestions={unresolvedQuestionsByTask?.get(task.id) ?? 0}
               />
             ))}
 
@@ -155,6 +160,7 @@ export function BoardColumn({
                       bulkSelected={bulkSelection?.has(task.id) ?? false}
                       selectionActive={selectionActive}
                       onSelectToggle={onSelectToggle}
+                      unresolvedQuestions={unresolvedQuestionsByTask?.get(task.id) ?? 0}
                     />
                   ))}
               </>

@@ -1312,12 +1312,51 @@ Examples:
 
 ### Task detail feed
 
-- Shows **every** activity for the current task, no pagination.
-- Comments render as large left-bordered cards with the full body and
-  any `@mention` highlights.
-- System events (status, priority, assignment, subtask, due-date) are
-  compact one-line rows between the comment cards — easy to scan
-  without drowning the conversation.
+The task page splits the feed into two tabs so the conversation never
+drowns under the audit trail:
+
+- **Comments** (default) — every comment for the task, grouped into
+  a pinned section at the top and a chronological feed below. Each
+  comment renders as a card with the full body and any `@mention`
+  highlights.
+- **Activity Log** — every system event (status, priority,
+  assignment, subtask, due-date) as a compact one-line row.
+
+Counts next to each tab label keep both readable at a glance.
+
+### Comment labels, pins, threads, and questions
+
+The Comments tab carries a small vocabulary that lets a busy task
+page stay scannable:
+
+- **Labels** — every comment is one of 💬 Note (default), ❓ Question,
+  ✅ Decision, 🚫 Blocker, 💡 Idea. The chosen label drives a
+  coloured left border on the card and the Discord embed variant.
+- **Filter row** — buttons at the top of the tab scope the feed to
+  All / Questions / Decisions / Blockers / Ideas. The Pinned section
+  always shows in full and ignores the filter.
+- **Pinned** — anyone can pin a comment to the top of the task (up
+  to 5 per task). Pinned comments also still appear in their
+  chronological position with a small "📌 Pinned" badge.
+- **Threading (1 level)** — replies render indented under their
+  parent with a "Show N more replies" toggle when there are more
+  than two. Replying to a reply normalises to the original parent
+  so the tree stays flat.
+- **Question resolution** — Questions show a **Resolved?** toggle.
+  Unresolved questions surface as a "❓ N" badge on board cards
+  and as a blue row in the Dashboard's **Needs Attention**.
+
+### Comment input shortcuts
+
+- **Ctrl/Cmd + B** — wraps the current selection in `**bold**`.
+- **Ctrl/Cmd + E** — wraps the current selection in `` `code` ``.
+- **Ctrl/Cmd + Enter** — submits the comment.
+- Type `- ` at the start of a line and press Enter — the bullet
+  continues automatically; pressing Enter on an empty bullet ends
+  the list.
+
+Bold, code, bullets, and `@mentions` are rendered inline — no raw
+HTML, the tokeniser is plain text only.
 
 ### Per-item timestamp toggle
 

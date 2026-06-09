@@ -3,7 +3,6 @@ import { Link, useNavigate, useParams } from 'react-router-dom'
 import { ArrowLeft, FileQuestion } from 'lucide-react'
 import { toast } from 'sonner'
 import { ActivityCommentFeed } from '@/components/task-detail/ActivityCommentFeed'
-import { CommentInput } from '@/components/task-detail/CommentInput'
 import { DescriptionEditor } from '@/components/task-detail/DescriptionEditor'
 import { SubtaskSection } from '@/components/task-detail/SubtaskSection'
 import { TagsSection } from '@/components/task-detail/TagsSection'
@@ -50,7 +49,6 @@ export default function TaskDetailPage() {
     updateSubtask,
     deleteSubtask: removeSubtask,
     reorderSubtasks,
-    addComment,
   } = useData()
 
   const task = tasks.find((t) => t.id === taskId)
@@ -222,21 +220,11 @@ export default function TaskDetailPage() {
         >
           Activity
         </h2>
-        <div className="space-y-4">
-          <ActivityCommentFeed
-            activities={taskActivities}
-            members={teamMembers}
-          />
-          <CommentInput
-            members={teamMembers}
-            currentUser={currentUser}
-            onSubmit={async (text, mentions) => {
-              await safeUpdate('comment', () =>
-                addComment(task.id, text, mentions),
-              )
-            }}
-          />
-        </div>
+        <ActivityCommentFeed
+          task={task}
+          activities={taskActivities}
+          members={teamMembers}
+        />
       </section>
 
       <ConfirmModal

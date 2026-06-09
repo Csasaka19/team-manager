@@ -47,6 +47,7 @@ export default function BoardPage() {
     tasks,
     projects,
     teamMembers,
+    activities,
     updateTask,
     bulkUpdateTasks,
     bulkDeleteTasks,
@@ -106,6 +107,22 @@ export default function BoardPage() {
     () => filterTasks(tasks, filters),
     [tasks, filters],
   )
+
+  // Unresolved-question count per task — drives the "❓ N" badge on
+  // each board card. Counts only comment activities labeled "question"
+  // whose `resolved` flag is not true. Replies don't carry their own
+  // label, so this naturally only counts top-level questions.
+  const unresolvedQuestionsByTask = useMemo(() => {
+    const map = new Map<string, number>()
+    for (const a of activities) {
+      if (a.type !== 'comment') continue
+      if (a.commentLabel !== 'question') continue
+      if (a.resolved === true) continue
+      if (a.taskId === null) continue
+      map.set(a.taskId, (map.get(a.taskId) ?? 0) + 1)
+    }
+    return map
+  }, [activities])
 
   const tasksByStatus = useMemo(() => {
     const buckets: Record<TaskStatus, Task[]> = {
@@ -485,6 +502,7 @@ export default function BoardPage() {
                   tasks={tasksByStatus[status]}
                   projectById={projectById}
                   memberById={memberById}
+                  unresolvedQuestionsByTask={unresolvedQuestionsByTask}
                   draggingTaskId={activeDragId}
                   canDragTask={canDragTask}
                   selectedTaskId={selectedId}

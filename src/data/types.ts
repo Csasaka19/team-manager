@@ -87,6 +87,15 @@ export interface Task {
   sourceActionItemId?: string
 }
 
+/** Categories applied to comments — controls visual styling, embed shape
+ *  on Discord, and filter / count behavior across the app. */
+export type CommentLabel =
+  | 'note'
+  | 'question'
+  | 'decision'
+  | 'blocker'
+  | 'idea'
+
 export interface Activity {
   id: string
   /** `null` for workspace-scoped activities (project_created, member_*). */
@@ -116,6 +125,23 @@ export interface Activity {
   projectId?: string
   /** Member context for member_added / member_removed. */
   memberId?: string
+
+  // ── Comment-specific fields (only meaningful when type === 'comment') ──
+  /** Threaded reply target. `null`/undefined = top-level comment. Replies
+   *  are limited to 1 level — replying to a reply normalizes to the
+   *  reply's `parentCommentId` so the tree stays flat. */
+  parentCommentId?: string | null
+  /** Categorization label that drives the colored left border + filter +
+   *  Discord embed variant. Missing/`'note'` = no visual treatment. */
+  commentLabel?: CommentLabel
+  /** True when a comment has been pinned to the task. */
+  isPinned?: boolean
+  /** Who pinned it — used for the "Pinned by X" caption. */
+  pinnedBy?: string | null
+  /** Only relevant for `commentLabel === 'question'` — flips when the team
+   *  marks the question resolved. Unresolved questions surface on board
+   *  cards and the Dashboard's Needs Attention. */
+  resolved?: boolean
 }
 
 export interface Tag {

@@ -600,6 +600,8 @@ export const mockActivities: Activity[] = [
     content: 'Any luck reproducing on the test devices?',
     mentions: [],
     createdAt: '2026-05-20T10:15:00Z',
+    commentLabel: 'question',
+    resolved: true,
   },
   {
     id: 'act-8',
@@ -609,6 +611,7 @@ export const mockActivities: Activity[] = [
     content: 'Yes — confirmed on iOS 17.4. Looks like the payment intent rejects when the postal code is empty.',
     mentions: [],
     createdAt: '2026-05-20T11:00:00Z',
+    parentCommentId: 'act-7',
   },
   {
     id: 'act-9',
@@ -636,6 +639,7 @@ export const mockActivities: Activity[] = [
     content: '@Alex Morgan — should we gate deploy on coverage above 80%?',
     mentions: [PM_ID],
     createdAt: '2026-05-19T14:00:00Z',
+    commentLabel: 'question',
   },
   {
     id: 'act-12',
@@ -645,6 +649,19 @@ export const mockActivities: Activity[] = [
     content: '70% for now, we can ratchet it up as we add tests.',
     mentions: [],
     createdAt: '2026-05-19T16:20:00Z',
+    parentCommentId: 'act-11',
+  },
+  {
+    id: 'act-12b',
+    taskId: 'task-13',
+    actorId: PM_ID,
+    type: 'comment',
+    content: 'Decision: **GitHub Actions** for the runner, deploys to staging on every merge to `main`. We can revisit Circle if minute usage gets painful.',
+    mentions: [],
+    createdAt: '2026-05-19T16:35:00Z',
+    commentLabel: 'decision',
+    isPinned: true,
+    pinnedBy: PM_ID,
   },
   {
     id: 'act-13',

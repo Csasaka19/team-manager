@@ -15,6 +15,7 @@
 
 import {
   PRIORITY_LABELS,
+  type CommentLabel,
   type Meeting,
   type Priority,
   type Project,
@@ -257,25 +258,66 @@ export function buildTaskAssignedEmbed(args: {
   }
 }
 
+/**
+ * Posted on every new comment. The label drives the embed's title /
+ * color / field name so the same Discord toggle (`comment_posted`)
+ * surfaces Questions / Blockers / Decisions distinctly without
+ * needing new Settings entries. Idea + Note both render as the
+ * regular "New Comment" shape.
+ */
 export function buildCommentPostedEmbed(args: {
   task: Task
   authorName: string
   comment: string
+  label?: CommentLabel
 }): DiscordEmbed {
+  const label = args.label ?? 'note'
+  // Questions / Blockers / Decisions get the longer 300-char body per spec;
+  // plain Notes truncate at 200 to keep the channel scannable.
+  const limit =
+    label === 'question' || label === 'blocker' || label === 'decision'
+      ? 300
+      : 200
   const trimmed =
-    args.comment.length > 200
-      ? `${args.comment.slice(0, 200)}…`
+    args.comment.length > limit
+      ? `${args.comment.slice(0, limit)}…`
       : args.comment
+
+  const variant = COMMENT_VARIANT[label]
+
   return {
-    title: '💬 New Comment',
+    title: variant.title,
     description: args.task.title,
-    color: COLOR.blue,
+    color: variant.color,
     fields: [
       { name: 'By', value: args.authorName, inline: true },
-      { name: 'Comment', value: trimmed, inline: false },
+      { name: variant.fieldLabel, value: trimmed, inline: false },
     ],
     timestamp: new Date().toISOString(),
   }
+}
+
+const COMMENT_VARIANT: Record<
+  CommentLabel,
+  { title: string; color: number; fieldLabel: string }
+> = {
+  note: { title: '💬 New Comment', color: COLOR.blue, fieldLabel: 'Comment' },
+  question: {
+    title: '❓ Question Posted',
+    color: COLOR.blue,
+    fieldLabel: 'Question',
+  },
+  decision: {
+    title: '✅ Decision Made',
+    color: COLOR.green,
+    fieldLabel: 'Decision',
+  },
+  blocker: {
+    title: '🚫 Blocker Reported',
+    color: COLOR.red,
+    fieldLabel: 'Blocker',
+  },
+  idea: { title: '💡 Idea Shared', color: COLOR.amber, fieldLabel: 'Idea' },
 }
 
 /**

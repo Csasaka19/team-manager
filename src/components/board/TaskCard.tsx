@@ -32,6 +32,9 @@ interface TaskCardProps {
   selectionActive?: boolean
   /** Modifier-click handler. Called only when ctrl/cmd/shift is held. */
   onSelectToggle?: (taskId: string, mods: SelectModifiers) => void
+  /** Number of unresolved Question comments on this task — drives the
+   *  small "❓ N" badge next to the subtask progress. */
+  unresolvedQuestions?: number
 }
 
 export function TaskCard({
@@ -46,6 +49,7 @@ export function TaskCard({
   bulkSelected = false,
   selectionActive = false,
   onSelectToggle,
+  unresolvedQuestions = 0,
 }: TaskCardProps) {
   const navigate = useNavigate()
   // Drag is disabled site-wide while multi-select is active so a stray
@@ -183,27 +187,36 @@ export function TaskCard({
       </div>
 
       <div className="mt-3 flex items-center justify-between gap-2">
-        {total > 0 ? (
-          <div className="flex min-w-0 items-center gap-2 text-[11px] text-[var(--text-secondary)] tabular-nums">
-            <span className="shrink-0">
-              {completed}/{total}
-            </span>
-            <div
-              className="h-1 w-20 overflow-hidden rounded-full bg-[var(--bg-elevated)]"
-              role="progressbar"
-              aria-valuemin={0}
-              aria-valuemax={total}
-              aria-valuenow={completed}
-            >
+        <div className="flex min-w-0 items-center gap-2 text-[11px] text-[var(--text-secondary)] tabular-nums">
+          {total > 0 && (
+            <>
+              <span className="shrink-0">
+                {completed}/{total}
+              </span>
               <div
-                className="h-full bg-[var(--accent-primary)] transition-[width] duration-200"
-                style={{ width: total === 0 ? '0%' : `${(completed / total) * 100}%` }}
-              />
-            </div>
-          </div>
-        ) : (
-          <span aria-hidden="true" />
-        )}
+                className="h-1 w-20 overflow-hidden rounded-full bg-[var(--bg-elevated)]"
+                role="progressbar"
+                aria-valuemin={0}
+                aria-valuemax={total}
+                aria-valuenow={completed}
+              >
+                <div
+                  className="h-full bg-[var(--accent-primary)] transition-[width] duration-200"
+                  style={{ width: total === 0 ? '0%' : `${(completed / total) * 100}%` }}
+                />
+              </div>
+            </>
+          )}
+          {unresolvedQuestions > 0 && (
+            <span
+              className="inline-flex shrink-0 items-center gap-0.5 text-[var(--priority-medium)]"
+              title={`${unresolvedQuestions} unresolved ${unresolvedQuestions === 1 ? 'question' : 'questions'}`}
+            >
+              <span aria-hidden="true">❓</span>
+              {unresolvedQuestions}
+            </span>
+          )}
+        </div>
 
         {assignee ? (
           <Avatar name={assignee.name} size="sm" title={assignee.name} />

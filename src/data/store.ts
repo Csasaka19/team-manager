@@ -39,6 +39,7 @@ import {
   type ActionItem,
   type Activity,
   type ActivityType,
+  type CommentLabel,
   type Decision,
   type Meeting,
   type MeetingLink,
@@ -212,6 +213,17 @@ export interface UpdateTaskInput {
   tags?: string[]
 }
 
+export interface AddCommentOptions {
+  mentions?: string[]
+  label?: CommentLabel
+  /** When set, the new comment is a reply. Replies are normalized to one
+   *  level deep — replying to an existing reply uses the reply's
+   *  `parentCommentId` instead. */
+  parentCommentId?: string | null
+}
+
+const PIN_LIMIT = 5
+
 export interface CreateProjectInput {
   name: string
   description?: string
@@ -354,7 +366,7 @@ export interface DataStore {
   addComment: (
     taskId: string,
     content: string,
-    mentions?: string[],
+    options?: AddCommentOptions,
   ) => Promise<Activity>
   addActivity: (
     taskId: string,
@@ -362,6 +374,16 @@ export interface DataStore {
     content: string,
     mentions?: string[],
   ) => Activity
+  /** Pin a comment to the task. Throws if the task already has 5 pinned. */
+  pinComment: (commentId: string) => Promise<void>
+  unpinComment: (commentId: string) => Promise<void>
+  /** Toggle a question comment's `resolved` flag. */
+  setQuestionResolved: (
+    commentId: string,
+    resolved: boolean,
+  ) => Promise<void>
+  /** Delete a comment and (if it has any) all its replies. */
+  deleteCommentWithReplies: (commentId: string) => Promise<void>
 
   // Team members
   inviteTeamMember: (input: { name: string; email: string; role: Role }) => Promise<TeamMember>
@@ -523,6 +545,11 @@ export function DataProvider({ children }: { children: ReactNode }) {
       | 'taskTitle'
       | 'projectId'
       | 'memberId'
+      | 'parentCommentId'
+      | 'commentLabel'
+      | 'isPinned'
+      | 'pinnedBy'
+      | 'resolved'
     >
   >
 
@@ -601,6 +628,7 @@ export function DataProvider({ children }: { children: ReactNode }) {
   const statusLabelsRef = useRef(statusLabels)
   const workspaceNameRef = useRef(workspaceName)
   const discordSettingsRef = useRef(discordSettings)
+  const activitiesRef = useRef(activities)
 
   useEffect(() => {
     tasksRef.current = tasks
@@ -620,6 +648,9 @@ export function DataProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     discordSettingsRef.current = discordSettings
   }, [discordSettings])
+  useEffect(() => {
+    activitiesRef.current = activities
+  }, [activities])
 
   const emitDiscord = useCallback(
     (
@@ -1248,9 +1279,30 @@ export function DataProvider({ children }: { children: ReactNode }) {
   )
 
   const addComment = useCallback<DataStore['addComment']>(
-    (taskId, content, mentions = []) =>
+    (taskId, content, options = {}) =>
       withMutation(() => {
-        const activity = pushActivity(taskId, 'comment', content, mentions)
+        const mentions = options.mentions ?? []
+        const label = options.label ?? 'note'
+
+        // Normalize threading to 1 level deep — replying to a reply uses
+        // the reply's parent so the tree never goes deeper.
+        let parentCommentId: string | null = options.parentCommentId ?? null
+        if (parentCommentId) {
+          const parent = activitiesRef.current.find(
+            (a) => a.id === parentCommentId,
+          )
+          if (parent?.parentCommentId) {
+            parentCommentId = parent.parentCommentId
+          }
+        }
+
+        const activity = pushActivity(taskId, 'comment', content, mentions, {
+          commentLabel: label,
+          parentCommentId,
+          // Questions start unresolved; other labels don't carry the flag.
+          ...(label === 'question' ? { resolved: false } : {}),
+        })
+
         const task = tasksRef.current.find((t) => t.id === taskId)
         if (task?.assigneeId && task.assigneeId !== actorId) {
           pushNotification({
@@ -1274,12 +1326,82 @@ export function DataProvider({ children }: { children: ReactNode }) {
               task,
               authorName: memberName(teamMembersRef.current, actorId),
               comment: content,
+              label,
             }),
           )
         }
         return activity
       }),
     [actorId, pushActivity, pushNotification, emitDiscord],
+  )
+
+  const pinComment = useCallback<DataStore['pinComment']>(
+    (commentId) =>
+      withMutation(() => {
+        const target = activitiesRef.current.find((a) => a.id === commentId)
+        if (!target || target.type !== 'comment') {
+          throw new Error(`Comment ${commentId} not found`)
+        }
+        if (target.isPinned) return
+        const pinnedForTask = activitiesRef.current.filter(
+          (a) =>
+            a.type === 'comment' &&
+            a.taskId === target.taskId &&
+            a.isPinned,
+        ).length
+        if (pinnedForTask >= PIN_LIMIT) {
+          throw new Error(`Pin limit (${PIN_LIMIT}) reached`)
+        }
+        setActivities((prev) =>
+          prev.map((a) =>
+            a.id === commentId ? { ...a, isPinned: true, pinnedBy: actorId } : a,
+          ),
+        )
+      }),
+    [actorId],
+  )
+
+  const unpinComment = useCallback<DataStore['unpinComment']>(
+    (commentId) =>
+      withMutation(() => {
+        setActivities((prev) =>
+          prev.map((a) =>
+            a.id === commentId ? { ...a, isPinned: false, pinnedBy: null } : a,
+          ),
+        )
+      }),
+    [],
+  )
+
+  const setQuestionResolved = useCallback<DataStore['setQuestionResolved']>(
+    (commentId, resolved) =>
+      withMutation(() => {
+        setActivities((prev) =>
+          prev.map((a) =>
+            a.id === commentId && a.type === 'comment' && a.commentLabel === 'question'
+              ? { ...a, resolved }
+              : a,
+          ),
+        )
+      }),
+    [],
+  )
+
+  const deleteCommentWithReplies = useCallback<
+    DataStore['deleteCommentWithReplies']
+  >(
+    (commentId) =>
+      withMutation(() => {
+        const target = activitiesRef.current.find((a) => a.id === commentId)
+        if (!target) return
+        // Collect IDs to remove: the comment itself + every reply to it.
+        const removeIds = new Set([commentId])
+        for (const a of activitiesRef.current) {
+          if (a.parentCommentId === commentId) removeIds.add(a.id)
+        }
+        setActivities((prev) => prev.filter((a) => !removeIds.has(a.id)))
+      }),
+    [],
   )
 
   const inviteTeamMember = useCallback<DataStore['inviteTeamMember']>(
@@ -1628,6 +1750,10 @@ export function DataProvider({ children }: { children: ReactNode }) {
       deleteSubtask,
       reorderSubtasks,
       addComment,
+      pinComment,
+      unpinComment,
+      setQuestionResolved,
+      deleteCommentWithReplies,
       addActivity: pushActivity,
       inviteTeamMember,
       removeTeamMember,

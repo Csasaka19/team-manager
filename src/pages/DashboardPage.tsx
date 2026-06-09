@@ -362,13 +362,15 @@ function computeAttention(
     })
   }
 
-  // 3. Recent questions (blue) — comments ending in "?" in the last 48 hours.
+  // 3. Recent questions (blue) — comments explicitly labeled "question"
+  // that haven't been marked resolved, posted in the last 48 hours.
   const refTime = now().getTime()
   const questionComments = activities
     .filter(
       (a) =>
         a.type === 'comment' &&
-        a.content.trim().endsWith('?') &&
+        a.commentLabel === 'question' &&
+        a.resolved !== true &&
         refTime - new Date(a.createdAt).getTime() <=
           QUESTION_WINDOW_HOURS * 3_600_000,
     )
