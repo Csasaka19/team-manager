@@ -9,6 +9,7 @@ import { SubtaskSection } from '@/components/task-detail/SubtaskSection'
 import { TagsSection } from '@/components/task-detail/TagsSection'
 import { TaskHeader } from '@/components/task-detail/TaskHeader'
 import { ConfirmModal } from '@/components/shared/ConfirmModal'
+import { MeetingSourceBanner } from '@/components/task-detail/MeetingSourceBanner'
 import { useAuth } from '@/data/auth'
 import { useData } from '@/data/store'
 import { useDocumentTitle } from '@/hooks/useDocumentTitle'
@@ -147,6 +148,10 @@ export default function TaskDetailPage() {
         onDelete={() => setConfirmOpen(true)}
       />
       </div>
+
+      {task.sourceMeetingId && (
+        <MeetingSourceBanner sourceMeetingId={task.sourceMeetingId} />
+      )}
 
       <DescriptionEditor
         value={task.description}

@@ -15,6 +15,7 @@
 
 import {
   PRIORITY_LABELS,
+  type Meeting,
   type Priority,
   type Project,
   type Task,
@@ -359,6 +360,78 @@ export function buildOverdueSummaryEmbed(args: {
       value: `Assigned to ${assigneeName} · ${daysOverdue} ${daysOverdue === 1 ? 'day' : 'days'} overdue`,
       inline: false,
     })),
+    timestamp: new Date().toISOString(),
+  }
+}
+
+/**
+ * Posted when a meeting transitions to `completed`. Gated by the
+ * existing `task_status_changed` toggle to avoid adding new Settings
+ * entries — meetings live alongside tasks in the same notification
+ * stream.
+ */
+export function buildMeetingCompletedEmbed(args: {
+  meeting: Meeting
+  project: Project | undefined
+  attendeeNames: string[]
+}): DiscordEmbed {
+  const { meeting, project, attendeeNames } = args
+  const decisionCount = meeting.decisions.length
+  const actionCount = meeting.actionItems.length
+  const assignedCount = meeting.actionItems.filter(
+    (a) => a.assigneeId !== null,
+  ).length
+  return {
+    title: '📝 Meeting Notes Posted',
+    description: meeting.title,
+    color: COLOR.blue,
+    fields: [
+      {
+        name: 'Project',
+        value: project?.name ?? 'Unknown',
+        inline: true,
+      },
+      {
+        name: 'Attendees',
+        value: attendeeNames.length > 0 ? attendeeNames.join(', ') : 'None recorded',
+        inline: true,
+      },
+      {
+        name: 'Decisions',
+        value: `${decisionCount} ${decisionCount === 1 ? 'decision' : 'decisions'} made`,
+        inline: true,
+      },
+      {
+        name: 'Action Items',
+        value: `${actionCount} ${actionCount === 1 ? 'action item' : 'action items'} (${assignedCount} assigned)`,
+        inline: false,
+      },
+    ],
+    timestamp: new Date().toISOString(),
+  }
+}
+
+/** Posted when an action item is converted into a full Task. Gated by
+ *  the existing `task_created` toggle. */
+export function buildActionItemConvertedEmbed(args: {
+  actionItemText: string
+  meetingTitle: string
+  assigneeName: string
+  dueDate: string | null
+}): DiscordEmbed {
+  return {
+    title: '📋 Action Item → Task',
+    description: args.actionItemText,
+    color: COLOR.amber,
+    fields: [
+      { name: 'From Meeting', value: args.meetingTitle, inline: true },
+      { name: 'Assigned to', value: args.assigneeName, inline: true },
+      {
+        name: 'Due',
+        value: args.dueDate ? dueLabel(args.dueDate) : 'No due date',
+        inline: true,
+      },
+    ],
     timestamp: new Date().toISOString(),
   }
 }

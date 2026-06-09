@@ -31,6 +31,7 @@ required to demo. Drop in a real API later and the UI doesn't need to change.
 - [Quick Create](#quick-create)
 - [Task templates](#task-templates)
 - [Subtasks](#subtasks)
+- [Meetings](#meetings)
 - [PM dashboard](#pm-dashboard)
 - [Data export](#data-export)
 - [Onboarding tour](#onboarding-tour)
@@ -651,6 +652,141 @@ in `subtask_created` rows when a 6-subtask feature template lands.
 - `src/components/settings/TaskTemplateFormModal.tsx` — the editor modal
 - `src/components/quick-create/QuickCreateModal.tsx` — "Use template"
   dropdown + placeholder-selection focus behavior
+
+---
+
+## Meetings
+
+A meeting is a discussion tied to a project where the team captures
+context, decisions, and action items. Meetings live alongside Tasks
+(`Meeting`, `Decision`, `ActionItem`, `MeetingLink` types in
+`src/data/types.ts`).
+
+### Where they live
+
+Project cards on `/projects` now navigate to **`/projects/:projectId`** —
+a project detail page with two tabs:
+
+- **Board** — tab-styled link to `/board?project=<id>` (the existing kanban)
+- **Meetings** — inline list of meetings for the project
+
+Deep link directly with `/projects/:projectId/meetings/:meetingId`.
+Sidebar nav stays clean — meetings deliberately don't get a top-level
+section, reinforcing that they belong to a project.
+
+### Meeting detail sections
+
+| Section | What it captures |
+|---|---|
+| **Header** | Title (PM-editable), date / time / duration, location (URL detection → link), status dropdown, attendee chips with avatars + "Add attendee" picker |
+| **Agenda** | Collapsible — defaults open for scheduled, collapsed for completed; click to inline-edit |
+| **Discussion notes** | The core content — multi-line text with `whitespace-pre-wrap` rendering. Shows "Last edited by <name> · <time>" when present. |
+| **Decisions** | Cards with a green left border, "Decided by" dropdown, hover-revealed X to remove, inline "Add decision" |
+| **Action items** | Checklist rows: checkbox + text + assignee + due-date popover + Convert-to-Task button. Linked tasks show a chain icon and a "View task" link instead. Deleted-task fallback shows a muted "Task deleted" badge. |
+| **Links** | Reference list with label + URL, opens in a new tab |
+
+Permissions match the rest of the app:
+
+- **PM** can edit everything (title, status, attendees, delete).
+- **Project member** can edit collaborative content (notes / decisions /
+  action items / links) but not the metadata / chrome.
+- **Non-member** has read-only access.
+- **Cancelled** meetings are read-only for everyone; the row in the
+  list grays out, the title gets a strikethrough.
+
+### Action item → Task conversion
+
+`convertActionItemToTask(meetingId, actionItemId)` in the store:
+
+1. Reads the action item's text / assignee / due date
+2. Calls `createTask` (one mutation, one 800 ms delay) with those
+   fields, inheriting the meeting's project
+3. Patches `sourceMeetingId` + `sourceActionItemId` onto the new task
+4. Sets `linkedTaskId` on the action item so the row swaps to "View task"
+5. Pushes a `creation` activity describing the lineage
+6. Fires the action-item-converted Discord embed if the
+   `task_created` toggle is on
+
+Re-clicking Convert on a row whose task still exists is a no-op (it
+returns the existing task). Re-clicking on a row whose linked task was
+deleted creates a fresh task and re-links.
+
+### Task back-link banner
+
+On the Task Detail page, a task with `sourceMeetingId` shows a small
+"Created from meeting: <title> · <date>" banner above the description,
+linking back to the meeting. If the source meeting was deleted, the
+banner falls back to a muted "Source meeting was deleted." — the task
+is independent at that point, but the lineage shows.
+
+### Dashboard widget
+
+A collapsible "Recent Meetings" section sits between **This Week** and
+**Needs Attention** on `/dashboard`. Shows the 3 most recent meetings
+across all projects with title + project dot + date label + action-item
+roll-up. "View all" links to `/projects`.
+
+### Discord integration
+
+Both events ride on existing toggles — no new Settings entries:
+
+| Event | Discord toggle gating it |
+|---|---|
+| Meeting completed (status → `completed`) | `task_status_changed` |
+| Action item → Task | `task_created` |
+
+Embed shapes match the spec — meeting summary lists project, attendees,
+decision count, and action-item count with assigned breakdown. Action-
+item conversion lists the source meeting, assignee, and due date.
+
+### Command palette
+
+Typing in `Cmd+K` now searches a 4th group: **Meetings**. Matches on
+title and notes (so a search for a topic mentioned in discussion still
+surfaces the meeting). Max 5 results, sorted newest first.
+
+### Edge cases handled
+
+- **Scheduled meeting, no notes** — agenda section open, notes show
+  "Meeting hasn't happened yet. Notes will be captured here."
+- **Empty decisions / action items / links / attendees** — each has a
+  muted placeholder line ("No decisions recorded.", etc.)
+- **Convert with no assignee** — task is created unassigned; Discord
+  embed shows "Unassigned" in the field
+- **Linked task deleted** — action item shows the muted "Task deleted"
+  badge instead of "View task"
+- **Source meeting deleted** — task back-link banner reads "Source
+  meeting was deleted." in `--text-muted`
+- **All action items done** — list row shows an "All actions done"
+  green pill
+- **Cancelled meeting** — row grays out, detail page is read-only for
+  everyone, no Convert-to-Task buttons
+
+### Trade-offs
+
+- **"Rich text" is plain text + `whitespace-pre-wrap`**. Same approach
+  as the description editor and comments — no extra editor dependency.
+  Markdown rendering can be a follow-up.
+- **Board tab is a link, not embedded**. Clicking Board navigates to
+  `/board?project=<id>` rather than rendering the kanban inline.
+  Extracting a reusable `<KanbanBoard>` view would roughly double the
+  diff for this feature.
+- **No new Discord toggles**. Meeting events piggyback on the closest
+  existing toggle.
+
+### Where the code lives
+
+| File | Purpose |
+|---|---|
+| `src/data/types.ts` | `Meeting`, `Decision`, `ActionItem`, `MeetingLink`; `Task.sourceMeetingId` / `Task.sourceActionItemId` |
+| `src/data/mock-data.ts` | 5 seeded meetings (1 with a linked task) |
+| `src/data/store.ts` | `meetings` state · `createMeeting` / `updateMeeting` / `deleteMeeting` / `convertActionItemToTask` |
+| `src/services/discord.ts` | `buildMeetingCompletedEmbed`, `buildActionItemConvertedEmbed` |
+| `src/pages/ProjectDetailPage.tsx` | Tab container + meeting list |
+| `src/pages/MeetingDetailPage.tsx` | Full meeting detail, all sub-sections inline |
+| `src/components/meetings/` | `MeetingList`, `MeetingListRow`, `MeetingFormModal` |
+| `src/components/dashboard/RecentMeetings.tsx` | Dashboard widget |
+| `src/components/task-detail/MeetingSourceBanner.tsx` | Task back-link banner |
 
 ---
 

@@ -78,6 +78,13 @@ export interface Task {
   createdAt: string
   updatedAt: string
   createdBy: string
+  /** Set when this task was converted from a meeting's action item.
+   *  Renders a "Created from meeting" back-link banner on the task
+   *  detail page. Stays set even if the meeting is later deleted —
+   *  the banner falls back to a muted "Source meeting was deleted"
+   *  in that case. */
+  sourceMeetingId?: string
+  sourceActionItemId?: string
 }
 
 export interface Activity {
@@ -115,6 +122,63 @@ export interface Tag {
   id: string
   name: string
   color: string
+}
+
+/** A discussion held for a project — notes, decisions, action items. */
+export type MeetingStatus = 'scheduled' | 'completed' | 'cancelled'
+
+export interface Decision {
+  id: string
+  text: string
+  /** Member who made the call. `null` when it was a group decision. */
+  decidedBy: string | null
+}
+
+export interface ActionItem {
+  id: string
+  text: string
+  assigneeId: string | null
+  dueDate: string | null
+  done: boolean
+  /** When this action item has been converted into a full Task, the
+   *  resulting task's id is stored here so the UI can link to it. */
+  linkedTaskId: string | null
+}
+
+export interface MeetingLink {
+  id: string
+  label: string
+  url: string
+}
+
+export interface Meeting {
+  id: string
+  title: string
+  projectId: string
+  /** Date the meeting happened (or is scheduled), YYYY-MM-DD. */
+  date: string
+  /** Free-form start time like "10:00 AM". `null` when not specified. */
+  startTime: string | null
+  /** Duration in minutes. `null` when not specified. */
+  duration: number | null
+  attendeeIds: string[]
+  status: MeetingStatus
+  /** Free text: "Discord #dev-standup", "Google Meet", "In-person", etc. */
+  location: string | null
+  /** Pre-meeting agenda. */
+  agenda: string | null
+  /** Discussion notes — captured during/after the meeting. Plain text;
+   *  rendered with `whitespace-pre-wrap` so paragraph breaks survive. */
+  notes: string
+  decisions: Decision[]
+  actionItems: ActionItem[]
+  links: MeetingLink[]
+  createdBy: string
+  createdAt: string
+  updatedAt: string
+  /** Member who last edited notes (drives the "Last edited by …" indicator). */
+  lastEditedBy: string | null
+  lastEditedAt: string | null
 }
 
 /**

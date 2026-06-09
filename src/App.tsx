@@ -8,6 +8,8 @@ import BoardPage from '@/pages/BoardPage'
 import MyTasksPage from '@/pages/MyTasksPage'
 import TaskDetailPage from '@/pages/TaskDetailPage'
 import ProjectsPage from '@/pages/ProjectsPage'
+import ProjectDetailPage from '@/pages/ProjectDetailPage'
+import MeetingDetailPage from '@/pages/MeetingDetailPage'
 import TeamPage from '@/pages/TeamPage'
 import SettingsPage from '@/pages/SettingsPage'
 import NotFoundPage from '@/pages/NotFoundPage'
@@ -38,6 +40,11 @@ function App() {
           <Route path="/my-tasks" element={<MyTasksPage />} />
           <Route path="/tasks/:taskId" element={<TaskDetailPage />} />
           <Route path="/projects" element={<ProjectsPage />} />
+          <Route path="/projects/:projectId" element={<ProjectDetailPage />} />
+          <Route
+            path="/projects/:projectId/meetings/:meetingId"
+            element={<MeetingDetailPage />}
+          />
           <Route path="/team" element={<TeamPage />} />
           <Route path="/settings" element={<SettingsPage />} />
           <Route path="*" element={<NotFoundPage />} />

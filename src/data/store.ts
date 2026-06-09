@@ -11,8 +11,10 @@ import {
 } from 'react'
 import {
   DEFAULT_DISCORD_SETTINGS,
+  buildActionItemConvertedEmbed,
   buildBulkUpdateEmbed,
   buildCommentPostedEmbed,
+  buildMeetingCompletedEmbed,
   buildTaskAssignedEmbed,
   buildTaskCompletedEmbed,
   buildTaskCreatedEmbed,
@@ -25,6 +27,7 @@ import {
 import { useAuth } from './auth'
 import {
   mockActivities,
+  mockMeetings,
   mockNotifications,
   mockProjects,
   mockTags,
@@ -33,8 +36,13 @@ import {
 } from './mock-data'
 import {
   STATUS_LABELS,
+  type ActionItem,
   type Activity,
   type ActivityType,
+  type Decision,
+  type Meeting,
+  type MeetingLink,
+  type MeetingStatus,
   type Notification,
   type NotificationType,
   type Priority,
@@ -211,6 +219,37 @@ export interface CreateProjectInput {
   memberIds?: string[]
 }
 
+export interface CreateMeetingInput {
+  title: string
+  projectId: string
+  date: string
+  startTime?: string | null
+  duration?: number | null
+  attendeeIds?: string[]
+  status?: MeetingStatus
+  location?: string | null
+  agenda?: string | null
+  notes?: string
+}
+
+/** Patch shape for `updateMeeting`. Sub-collections (decisions / action
+ *  items / links) use replace-the-array semantics — callers compose the
+ *  next list and pass it whole. */
+export interface UpdateMeetingInput {
+  title?: string
+  date?: string
+  startTime?: string | null
+  duration?: number | null
+  attendeeIds?: string[]
+  status?: MeetingStatus
+  location?: string | null
+  agenda?: string | null
+  notes?: string
+  decisions?: Decision[]
+  actionItems?: ActionItem[]
+  links?: MeetingLink[]
+}
+
 export interface UpdateProjectInput {
   name?: string
   description?: string
@@ -261,6 +300,23 @@ export interface DataStore {
     patch: Partial<Omit<TaskTemplate, 'id' | 'createdAt'>>,
   ) => void
   deleteTemplate: (id: string) => void
+
+  // Meetings — discussions tied to a project
+  meetings: Meeting[]
+  createMeeting: (input: CreateMeetingInput) => Promise<Meeting>
+  updateMeeting: (id: string, patch: UpdateMeetingInput) => Promise<Meeting>
+  deleteMeeting: (id: string) => Promise<void>
+  /**
+   * Turn an action item into a full Task. Copies text, assignee, due date,
+   * inherits the meeting's project. Sets `linkedTaskId` on the action item
+   * AND `sourceMeetingId` / `sourceActionItemId` on the task for the back-
+   * link banner. Pushes a `creation` activity describing the conversion
+   * and (if enabled) fires the action-item-converted Discord embed.
+   */
+  convertActionItemToTask: (
+    meetingId: string,
+    actionItemId: string,
+  ) => Promise<Task>
 
   // Task CRUD
   createTask: (input: CreateTaskInput) => Promise<Task>
@@ -332,6 +388,7 @@ export function DataProvider({ children }: { children: ReactNode }) {
   const [tasks, setTasks] = useState<Task[]>(mockTasks)
   const [activities, setActivities] = useState<Activity[]>(mockActivities)
   const [notifications, setNotifications] = useState<Notification[]>(mockNotifications)
+  const [meetings, setMeetings] = useState<Meeting[]>(mockMeetings)
   const [inflight, setInflight] = useState(0)
   const [isInitialLoading, setIsInitialLoading] = useState(true)
 
@@ -1346,6 +1403,179 @@ export function DataProvider({ children }: { children: ReactNode }) {
     [],
   )
 
+  // ---- Meetings ----------------------------------------------------------
+  const meetingsRef = useRef(meetings)
+  useEffect(() => {
+    meetingsRef.current = meetings
+  }, [meetings])
+
+  const createMeeting = useCallback<DataStore['createMeeting']>(
+    (input) =>
+      withMutation(() => {
+        const now = new Date().toISOString()
+        const meeting: Meeting = {
+          id: uid('meet'),
+          title: input.title,
+          projectId: input.projectId,
+          date: input.date,
+          startTime: input.startTime ?? null,
+          duration: input.duration ?? null,
+          attendeeIds: input.attendeeIds ?? [],
+          status: input.status ?? 'scheduled',
+          location: input.location ?? null,
+          agenda: input.agenda ?? null,
+          notes: input.notes ?? '',
+          decisions: [],
+          actionItems: [],
+          links: [],
+          createdBy: actorId,
+          createdAt: now,
+          updatedAt: now,
+          lastEditedBy: null,
+          lastEditedAt: null,
+        }
+        setMeetings((prev) => [...prev, meeting])
+        return meeting
+      }),
+    [actorId],
+  )
+
+  const updateMeeting = useCallback<DataStore['updateMeeting']>(
+    (id, patch) =>
+      withMutation(() => {
+        const prev = meetingsRef.current.find((m) => m.id === id)
+        if (!prev) throw new Error(`Meeting ${id} not found`)
+        const now = new Date().toISOString()
+        // Notes-edit also bumps `lastEditedBy/At` for the "Last edited by"
+        // indicator. Other field changes don't — they're metadata, not
+        // discussion content.
+        const notesChanged =
+          patch.notes !== undefined && patch.notes !== prev.notes
+        const next: Meeting = {
+          ...prev,
+          ...patch,
+          updatedAt: now,
+          ...(notesChanged
+            ? { lastEditedBy: actorId, lastEditedAt: now }
+            : {}),
+        }
+        setMeetings((cur) => cur.map((m) => (m.id === id ? next : m)))
+
+        // Discord: fire the completed-summary embed when status flips
+        // INTO `completed`. Gated by the existing task_status_changed
+        // toggle so meetings ride the same notification stream.
+        if (
+          patch.status === 'completed' &&
+          prev.status !== 'completed'
+        ) {
+          emitDiscord('task_status_changed', () =>
+            buildMeetingCompletedEmbed({
+              meeting: next,
+              project: projectsRef.current.find(
+                (p) => p.id === next.projectId,
+              ),
+              attendeeNames: next.attendeeIds
+                .map((mid) => teamMembersRef.current.find((m) => m.id === mid)?.name)
+                .filter((n): n is string => Boolean(n)),
+            }),
+          )
+        }
+        return next
+      }),
+    [actorId, emitDiscord],
+  )
+
+  const deleteMeeting = useCallback<DataStore['deleteMeeting']>(
+    (id) =>
+      withMutation(() => {
+        setMeetings((prev) => prev.filter((m) => m.id !== id))
+        // Tasks that referenced this meeting via sourceMeetingId stay
+        // alive — they're independent now. The task-detail banner falls
+        // back to "Source meeting was deleted" when the lookup misses.
+      }),
+    [],
+  )
+
+  const convertActionItemToTask = useCallback<
+    DataStore['convertActionItemToTask']
+  >(
+    async (meetingId, actionItemId) => {
+      const meeting = meetingsRef.current.find((m) => m.id === meetingId)
+      if (!meeting) throw new Error(`Meeting ${meetingId} not found`)
+      const item = meeting.actionItems.find((a) => a.id === actionItemId)
+      if (!item) throw new Error(`Action item ${actionItemId} not found`)
+      if (item.linkedTaskId) {
+        // Already linked — return the existing task.
+        const existing = tasksRef.current.find((t) => t.id === item.linkedTaskId)
+        if (existing) return existing
+      }
+
+      // createTask runs withMutation, so the artificial 800ms delay fires
+      // once for the whole conversion. After it resolves, we patch the
+      // task's source fields, link the action item, and emit the Discord
+      // embed + activity.
+      const task = await createTask({
+        title: item.text,
+        projectId: meeting.projectId,
+        assigneeId: item.assigneeId,
+        dueDate: item.dueDate,
+      })
+
+      // Patch source fields on the freshly-created task. createTask doesn't
+      // know about these (they're meeting-specific).
+      setTasks((prev) =>
+        prev.map((t) =>
+          t.id === task.id
+            ? {
+                ...t,
+                sourceMeetingId: meetingId,
+                sourceActionItemId: actionItemId,
+              }
+            : t,
+        ),
+      )
+
+      // Mark the action item as linked.
+      setMeetings((prev) =>
+        prev.map((m) =>
+          m.id === meetingId
+            ? {
+                ...m,
+                actionItems: m.actionItems.map((a) =>
+                  a.id === actionItemId ? { ...a, linkedTaskId: task.id } : a,
+                ),
+                updatedAt: new Date().toISOString(),
+              }
+            : m,
+        ),
+      )
+
+      // Activity: "[Actor] created task '[Title]' from meeting '[Meeting]'"
+      pushActivity(
+        task.id,
+        'creation',
+        `created from meeting "${meeting.title}"`,
+        [],
+        { taskTitle: task.title },
+      )
+
+      // Discord — gated by task_created toggle (it IS a new task, after all).
+      emitDiscord('task_created', () =>
+        buildActionItemConvertedEmbed({
+          actionItemText: item.text,
+          meetingTitle: meeting.title,
+          assigneeName: item.assigneeId
+            ? memberName(teamMembersRef.current, item.assigneeId)
+            : 'Unassigned',
+          dueDate: item.dueDate,
+        }),
+      )
+
+      return { ...task, sourceMeetingId: meetingId, sourceActionItemId: actionItemId }
+    },
+    [createTask, emitDiscord, pushActivity],
+  )
+
   const markAllNotificationsRead = useCallback<
     DataStore['markAllNotificationsRead']
   >((recipientId) => {
@@ -1379,6 +1609,11 @@ export function DataProvider({ children }: { children: ReactNode }) {
       createTemplate,
       updateTemplate,
       deleteTemplate,
+      meetings,
+      createMeeting,
+      updateMeeting,
+      deleteMeeting,
+      convertActionItemToTask,
       createTask,
       updateTask,
       deleteTask,
@@ -1425,6 +1660,11 @@ export function DataProvider({ children }: { children: ReactNode }) {
       createTemplate,
       updateTemplate,
       deleteTemplate,
+      meetings,
+      createMeeting,
+      updateMeeting,
+      deleteMeeting,
+      convertActionItemToTask,
       createTask,
       updateTask,
       deleteTask,

@@ -6,6 +6,7 @@
 
 import type {
   Activity,
+  Meeting,
   Notification,
   Project,
   Tag,
@@ -448,6 +449,10 @@ export const mockTasks: Task[] = [
     createdAt: '2026-05-19T14:00:00Z',
     updatedAt: '2026-05-19T14:00:00Z',
     createdBy: PM_ID,
+    // Seeded back-link — this task came out of the API Migration Kickoff
+    // meeting's first action item. Exercises the back-link banner.
+    sourceMeetingId: 'meet-2',
+    sourceActionItemId: 'ai-2-1',
   },
   {
     id: 'task-16',
@@ -979,5 +984,293 @@ export const mockNotifications: Notification[] = [
     actorId: PM_ID,
     read: true,
     createdAt: '2026-05-15T11:00:00Z',
+  },
+]
+
+/* ── Meetings ─────────────────────────────────────────────────────────────
+   Five seeded meetings spread across the three projects, anchored to the
+   demo "now" of 2026-05-22 (Thursday). One has an action item already
+   linked to an existing task (task-15) to exercise the back-link. */
+export const mockMeetings: Meeting[] = [
+  {
+    id: 'meet-1',
+    title: 'Sprint Planning — Website Redesign',
+    projectId: 'proj-1',
+    date: '2026-05-19',
+    startTime: '10:00 AM',
+    duration: 60,
+    attendeeIds: [PM_ID, MEMBER_ID],
+    status: 'completed',
+    location: 'Google Meet',
+    agenda:
+      'Lock the scope for week 23. Triage the homepage hero feedback from last week, agree on a launch window, and split the remaining accessibility audit work.',
+    notes: `We spent the first 15 minutes reviewing what's still in flight from last sprint. The homepage hero is the bottleneck — the v3 mockup from design tested better with the marketing team but pushes the launch date by a week if we adopt it wholesale. Sam suggested shipping the v2 layout for launch and treating v3 as a fast-follow.
+
+Marketing copy is in good shape; the only outstanding item is the "Built for teams" sub-header which legal flagged. Alex will reach out to legal directly rather than waiting for the next cross-functional sync.
+
+We also touched on the accessibility audit. The /pricing page has the worst Lighthouse score and Sam flagged that the focus order on the comparison table is broken. Splitting the audit into two tickets — one for color contrast, one for keyboard nav — so we can parallelize.
+
+Last topic: the launch date. We're committing to June 12 for the public push, with internal preview on June 5. Both dates are conditional on the hero copy being signed off by Wednesday.`,
+    decisions: [
+      {
+        id: 'dec-1-1',
+        text: 'Ship the v2 homepage hero for launch; v3 becomes a fast-follow in the next sprint.',
+        decidedBy: PM_ID,
+      },
+      {
+        id: 'dec-1-2',
+        text: 'Split the /pricing accessibility audit into two tickets — color contrast and keyboard navigation — so we can parallelize the work.',
+        decidedBy: null,
+      },
+    ],
+    actionItems: [
+      {
+        id: 'ai-1-1',
+        text: 'Get legal sign-off on the "Built for teams" sub-header by Wednesday',
+        assigneeId: PM_ID,
+        dueDate: '2026-05-27',
+        done: false,
+        linkedTaskId: null,
+      },
+      {
+        id: 'ai-1-2',
+        text: 'File a ticket for keyboard nav on the /pricing comparison table',
+        assigneeId: MEMBER_ID,
+        dueDate: '2026-05-23',
+        done: true,
+        linkedTaskId: null,
+      },
+      {
+        id: 'ai-1-3',
+        text: 'Confirm June 5 internal preview slot with the leadership channel',
+        assigneeId: PM_ID,
+        dueDate: '2026-05-26',
+        done: false,
+        linkedTaskId: null,
+      },
+      {
+        id: 'ai-1-4',
+        text: 'Update the launch announcement draft with the June 12 date',
+        assigneeId: MEMBER_ID,
+        dueDate: '2026-05-29',
+        done: false,
+        linkedTaskId: null,
+      },
+    ],
+    links: [
+      {
+        id: 'lnk-1-1',
+        label: 'Sprint board',
+        url: 'https://team-manager.example/board?project=proj-1',
+      },
+    ],
+    createdBy: PM_ID,
+    createdAt: '2026-05-19T09:55:00Z',
+    updatedAt: '2026-05-19T11:10:00Z',
+    lastEditedBy: PM_ID,
+    lastEditedAt: '2026-05-19T11:10:00Z',
+  },
+  {
+    id: 'meet-2',
+    title: 'API Migration Kickoff',
+    projectId: 'proj-3',
+    date: '2026-05-17',
+    startTime: '2:00 PM',
+    duration: 45,
+    attendeeIds: [PM_ID, MEMBER_ID],
+    status: 'completed',
+    location: 'Discord #api-migration',
+    agenda:
+      'Align on the v1 → v2 contract changes, partner communication plan, and a target sunset date.',
+    notes: `Started by walking through the v2 contract diff. The biggest user-facing change is the pagination shape — v1 returned a flat array with a Link header, v2 wraps results in { items, nextCursor }. We agreed not to support both shapes simultaneously; partners get a six-week heads-up instead.
+
+Sam raised that our two largest partners (Acme Corp and Northwind) integrate via the /users endpoint and will need migration guides specifically for that. We're going to write a short "v1 → v2 cheat sheet" alongside the full OpenAPI spec so the most-used endpoints get a paved path.
+
+For the cutoff: today is May 17, six-week heads-up puts notice on May 24 and cutoff on July 5. That gives partners a full pay period to integrate. Sunset headers will go live with notice on May 24.`,
+    decisions: [
+      {
+        id: 'dec-2-1',
+        text: 'No backward-compat shim — partners migrate to v2 within six weeks or the endpoint returns 410 Gone after July 5.',
+        decidedBy: PM_ID,
+      },
+    ],
+    actionItems: [
+      {
+        id: 'ai-2-1',
+        text: 'Write API documentation (OpenAPI spec + getting-started guide)',
+        assigneeId: MEMBER_ID,
+        dueDate: '2026-06-05',
+        done: false,
+        // Already a real Task — exercises the back-link banner.
+        linkedTaskId: 'task-15',
+      },
+      {
+        id: 'ai-2-2',
+        text: 'Draft the partner heads-up email; send to Acme and Northwind first',
+        assigneeId: PM_ID,
+        dueDate: '2026-05-24',
+        done: false,
+        linkedTaskId: null,
+      },
+      {
+        id: 'ai-2-3',
+        text: 'Add Sunset / Deprecation headers to every v1 endpoint',
+        assigneeId: MEMBER_ID,
+        dueDate: '2026-05-24',
+        done: true,
+        linkedTaskId: null,
+      },
+    ],
+    links: [
+      {
+        id: 'lnk-2-1',
+        label: 'v2 OpenAPI draft',
+        url: 'https://docs.example.com/api/v2',
+      },
+      {
+        id: 'lnk-2-2',
+        label: 'Partner integration list',
+        url: 'https://team-manager.example/projects/proj-3',
+      },
+    ],
+    createdBy: PM_ID,
+    createdAt: '2026-05-17T13:58:00Z',
+    updatedAt: '2026-05-17T15:00:00Z',
+    lastEditedBy: PM_ID,
+    lastEditedAt: '2026-05-17T15:00:00Z',
+  },
+  {
+    id: 'meet-3',
+    title: 'Mobile App — Design Review',
+    projectId: 'proj-2',
+    date: '2026-05-21',
+    startTime: '3:30 PM',
+    duration: 50,
+    attendeeIds: [PM_ID, MEMBER_ID],
+    status: 'completed',
+    location: 'Google Meet',
+    agenda:
+      'Walk through the v2 onboarding flow mocks and the biometric login UX.',
+    notes: `Sam took us through three onboarding variants. The team preferred Variant B — the three-step path with an inline progress indicator — over the carousel approach. The carousel tested poorly in last month's research because users skip past the "why" screens.
+
+For biometric login, the consensus is to follow the platform pattern strictly: prompt opt-in on the second successful password login (not the first), and fall back to password if the user dismisses the prompt twice. We discussed adding a "Remember this device" toggle but agreed it's out of scope for v2 — it muddies the security story.
+
+Open question we didn't resolve: whether to gate biometric setup behind a server flag for staged rollout. Sam to spec it both ways and we'll decide async.`,
+    decisions: [
+      {
+        id: 'dec-3-1',
+        text: 'Onboarding goes with Variant B (three-step path with progress indicator). Carousel approach is shelved.',
+        decidedBy: PM_ID,
+      },
+      {
+        id: 'dec-3-2',
+        text: 'Biometric opt-in prompt fires on the second successful password login, never the first.',
+        decidedBy: PM_ID,
+      },
+    ],
+    actionItems: [
+      {
+        id: 'ai-3-1',
+        text: 'Update Figma with the agreed-upon copy for Variant B step labels',
+        assigneeId: MEMBER_ID,
+        dueDate: '2026-05-23',
+        done: false,
+        linkedTaskId: null,
+      },
+      {
+        id: 'ai-3-2',
+        text: 'Spec the server-flag gating proposal for biometric staged rollout',
+        assigneeId: MEMBER_ID,
+        dueDate: '2026-05-28',
+        done: false,
+        linkedTaskId: null,
+      },
+    ],
+    links: [
+      {
+        id: 'lnk-3-1',
+        label: 'Figma — Onboarding v2',
+        url: 'https://www.figma.com/design/example/onboarding-v2',
+      },
+      {
+        id: 'lnk-3-2',
+        label: 'Biometric UX research summary',
+        url: 'https://docs.example.com/research/biometric',
+      },
+      {
+        id: 'lnk-3-3',
+        label: 'Recording',
+        url: 'https://meet.google.com/recordings/example',
+      },
+    ],
+    createdBy: PM_ID,
+    createdAt: '2026-05-21T15:25:00Z',
+    updatedAt: '2026-05-21T16:30:00Z',
+    lastEditedBy: PM_ID,
+    lastEditedAt: '2026-05-21T16:30:00Z',
+  },
+  {
+    id: 'meet-4',
+    title: 'Weekly Standup',
+    projectId: 'proj-1',
+    date: '2026-05-22',
+    startTime: '9:30 AM',
+    duration: 15,
+    attendeeIds: [PM_ID, MEMBER_ID],
+    status: 'completed',
+    location: 'Discord #standup',
+    agenda: null,
+    notes: `Sam: finished the keyboard nav fix on /pricing yesterday, picking up the hero copy task today. Blocked on legal sign-off — Alex following up.
+
+Alex: chasing legal this morning. Otherwise on track for the June 12 launch.
+
+No blockers worth escalating.`,
+    decisions: [],
+    actionItems: [
+      {
+        id: 'ai-4-1',
+        text: 'Follow up with legal on the "Built for teams" copy',
+        assigneeId: PM_ID,
+        dueDate: '2026-05-22',
+        done: false,
+        linkedTaskId: null,
+      },
+      {
+        id: 'ai-4-2',
+        text: 'Push hero copy update to staging once legal signs off',
+        assigneeId: MEMBER_ID,
+        dueDate: '2026-05-23',
+        done: false,
+        linkedTaskId: null,
+      },
+    ],
+    links: [],
+    createdBy: PM_ID,
+    createdAt: '2026-05-22T09:28:00Z',
+    updatedAt: '2026-05-22T09:45:00Z',
+    lastEditedBy: PM_ID,
+    lastEditedAt: '2026-05-22T09:45:00Z',
+  },
+  {
+    id: 'meet-5',
+    title: 'Homepage Hero — Feedback Session',
+    projectId: 'proj-1',
+    date: '2026-05-24',
+    startTime: '11:00 AM',
+    duration: 30,
+    attendeeIds: [PM_ID, MEMBER_ID],
+    status: 'scheduled',
+    location: 'Google Meet',
+    agenda:
+      'Quick feedback loop on the hero v3 variant. Marketing will share the messaging brief, design will share the latest prototype.',
+    notes: '',
+    decisions: [],
+    actionItems: [],
+    links: [],
+    createdBy: PM_ID,
+    createdAt: '2026-05-22T10:00:00Z',
+    updatedAt: '2026-05-22T10:00:00Z',
+    lastEditedBy: null,
+    lastEditedAt: null,
   },
 ]

@@ -74,14 +74,19 @@ export function BoardColumn({
   const showDropHint = isOver && isDraggingFromElsewhere
 
   return (
+    // Column is `h-full flex-col` so its body can fill the parent board
+    // row. Mobile pins width to 300px (with horizontal scroll on the parent);
+    // md+ grows evenly with `flex-1` and a 280px minimum so 4 columns either
+    // distribute across the viewport or overflow horizontally together.
     <section
       aria-label={`${statusLabels[status]} column`}
-      className="flex w-[280px] shrink-0 flex-col md:w-auto md:min-w-[280px] md:flex-1"
+      className="flex h-full w-[300px] shrink-0 flex-col md:w-auto md:min-w-[280px] md:flex-1"
     >
-      {/* Sticky top-14 keeps the column heading in view while scrolling a
-          long column — top-14 = under the 56 px TopBar. The bg+padding
-          prevents cards from showing through. */}
-      <header className="sticky top-14 z-10 mb-2 flex items-center gap-2 bg-[var(--bg-base)] px-1 py-1">
+      {/* Header doesn't scroll with the cards — it sits above the
+          scrollable card list as a flex sibling. The `sticky top-0` is
+          belt-and-suspenders in case a future container introduces scroll
+          inside the column. */}
+      <header className="sticky top-0 z-10 flex shrink-0 items-center gap-2 bg-[var(--bg-base)] px-1 pb-2 pt-1">
         <h2 className="text-xs font-semibold uppercase tracking-[0.5px] text-[var(--text-secondary)]">
           {statusLabels[status]}
         </h2>
@@ -93,7 +98,7 @@ export function BoardColumn({
       <div
         ref={setNodeRef}
         className={cn(
-          'flex min-h-[140px] flex-1 flex-col gap-2 rounded-lg p-1.5 transition-colors duration-150',
+          'flex min-h-0 flex-1 flex-col gap-2 overflow-y-auto rounded-lg p-1.5 pt-1 transition-colors duration-150',
           showDropHint
             ? 'border-2 border-dashed border-[color-mix(in_srgb,var(--accent-primary)_30%,transparent)] bg-[color-mix(in_srgb,var(--accent-primary)_5%,transparent)]'
             : 'border-2 border-dashed border-transparent',

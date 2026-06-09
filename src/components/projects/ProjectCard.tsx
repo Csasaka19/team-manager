@@ -40,8 +40,8 @@ export function ProjectCard({
       )}
     >
       <Link
-        to={`/board?project=${project.id}`}
-        aria-label={`Open ${project.name} on the board`}
+        to={`/projects/${project.id}`}
+        aria-label={`Open ${project.name}`}
         className="absolute inset-0 z-0 rounded-lg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent-focus)]"
       />
 

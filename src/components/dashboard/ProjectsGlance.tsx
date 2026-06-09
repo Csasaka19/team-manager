@@ -83,7 +83,7 @@ function MiniProjectCard({
 }) {
   return (
     <Link
-      to={`/board?project=${project.id}`}
+      to={`/projects/${project.id}`}
       className="block w-[200px] shrink-0 rounded-lg border border-[var(--border-subtle)] bg-[var(--bg-surface)] p-3 transition-colors hover:border-[var(--border-default)] hover:bg-[var(--bg-elevated)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent-focus)]"
     >
       <div className="flex items-center gap-2">

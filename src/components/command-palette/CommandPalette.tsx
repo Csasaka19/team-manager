@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import {
   CheckSquare,
+  FileText,
   FolderOpen,
   FolderPlus,
   LayoutDashboard,
@@ -104,12 +105,18 @@ interface ProjectHit {
   taskCount: number
 }
 
-type Hit = ActionHit | TaskHit | ProjectHit
+interface MeetingHit {
+  kind: 'meeting'
+  meeting: import('@/data/types').Meeting
+  project: Project | undefined
+}
+
+type Hit = ActionHit | TaskHit | ProjectHit | MeetingHit
 
 export function CommandPalette({ open, onClose, onCreateTask }: CommandPaletteProps) {
   const navigate = useNavigate()
   const { isPM, logout } = useAuth()
-  const { tasks, projects, teamMembers } = useData()
+  const { tasks, projects, teamMembers, meetings } = useData()
 
   const [input, setInput] = useState('')
   const [query, setQuery] = useState('')
@@ -166,7 +173,7 @@ export function CommandPalette({ open, onClose, onCreateTask }: CommandPalettePr
     return map
   }, [tasks])
 
-  const { actionHits, taskHits, projectHits, hits } = useMemo(() => {
+  const { actionHits, taskHits, projectHits, meetingHits, hits } = useMemo(() => {
     const q = query.toLowerCase()
     const actionHits: ActionHit[] = (
       q
@@ -207,13 +214,32 @@ export function CommandPalette({ open, onClose, onCreateTask }: CommandPalettePr
             taskCount: tasksByProject.get(p.id) ?? 0,
           }))
 
+    // Meeting matches: title is the strong signal; also peek at notes so
+    // a search for a topic mentioned in discussion surfaces the meeting.
+    const meetingHits: MeetingHit[] = !q
+      ? []
+      : meetings
+          .filter(
+            (m) =>
+              m.title.toLowerCase().includes(q) ||
+              m.notes.toLowerCase().includes(q),
+          )
+          .sort((a, b) => b.date.localeCompare(a.date))
+          .slice(0, MAX_PER_GROUP)
+          .map((m) => ({
+            kind: 'meeting' as const,
+            meeting: m,
+            project: projectById.get(m.projectId),
+          }))
+
     return {
       actionHits,
       taskHits,
       projectHits,
-      hits: [...actionHits, ...taskHits, ...projectHits] as Hit[],
+      meetingHits,
+      hits: [...actionHits, ...taskHits, ...projectHits, ...meetingHits] as Hit[],
     }
-  }, [query, visibleActions, tasks, projects, projectById, memberById, tasksByProject])
+  }, [query, visibleActions, tasks, projects, meetings, projectById, memberById, tasksByProject])
 
   useEffect(() => {
     setHighlight(0)
@@ -258,7 +284,10 @@ export function CommandPalette({ open, onClose, onCreateTask }: CommandPalettePr
       navigate(`/tasks/${hit.task.id}`)
       onClose()
     } else if (hit.kind === 'project') {
-      navigate(`/board?project=${hit.project.id}`)
+      navigate(`/projects/${hit.project.id}`)
+      onClose()
+    } else if (hit.kind === 'meeting') {
+      navigate(`/projects/${hit.meeting.projectId}/meetings/${hit.meeting.id}`)
       onClose()
     } else {
       runAction(hit.action)
@@ -286,6 +315,8 @@ export function CommandPalette({ open, onClose, onCreateTask }: CommandPalettePr
     action: 0,
     task: actionHits.length,
     project: actionHits.length + taskHits.length,
+    meeting:
+      actionHits.length + taskHits.length + projectHits.length,
   }
 
   return (
@@ -324,7 +355,10 @@ export function CommandPalette({ open, onClose, onCreateTask }: CommandPalettePr
         </div>
 
         <div className="max-h-[60vh] overflow-y-auto">
-          {actionHits.length === 0 && taskHits.length === 0 && projectHits.length === 0 ? (
+          {actionHits.length === 0 &&
+          taskHits.length === 0 &&
+          projectHits.length === 0 &&
+          meetingHits.length === 0 ? (
             <NoResults query={query} />
           ) : (
             <>
@@ -364,6 +398,20 @@ export function CommandPalette({ open, onClose, onCreateTask }: CommandPalettePr
                       hit={hit}
                       active={highlight === offset.project + i}
                       onHover={() => setHighlight(offset.project + i)}
+                      onClick={() => selectHit(hit)}
+                    />
+                  ))}
+                </Group>
+              )}
+
+              {meetingHits.length > 0 && (
+                <Group title="Meetings">
+                  {meetingHits.map((hit, i) => (
+                    <MeetingRow
+                      key={hit.meeting.id}
+                      hit={hit}
+                      active={highlight === offset.meeting + i}
+                      onHover={() => setHighlight(offset.meeting + i)}
                       onClick={() => selectHit(hit)}
                     />
                   ))}
@@ -554,6 +602,56 @@ function ProjectRow({
         <span className="shrink-0 text-xs text-[var(--text-muted)] tabular-nums">
           {hit.taskCount} {hit.taskCount === 1 ? 'task' : 'tasks'}
         </span>
+      </button>
+    </li>
+  )
+}
+
+function MeetingRow({
+  hit,
+  active,
+  onHover,
+  onClick,
+}: {
+  hit: MeetingHit
+  active: boolean
+  onHover: () => void
+  onClick: () => void
+}) {
+  return (
+    <li>
+      <button
+        type="button"
+        onMouseEnter={onHover}
+        onClick={onClick}
+        className={cn(
+          'flex w-full items-center gap-3 px-4 py-2 text-left transition-colors',
+          active ? 'bg-[var(--bg-surface)]' : 'hover:bg-[var(--bg-surface)]',
+        )}
+      >
+        <FileText
+          className="h-4 w-4 shrink-0 text-[var(--text-muted)]"
+          aria-hidden="true"
+        />
+        <div className="min-w-0 flex-1">
+          <p className="truncate text-sm text-[var(--text-primary)]">
+            {hit.meeting.title}
+          </p>
+          <p className="mt-0.5 flex items-center gap-1.5 text-xs text-[var(--text-secondary)]">
+            {hit.project && (
+              <>
+                <span
+                  className="h-1.5 w-1.5 shrink-0 rounded-full"
+                  style={{ backgroundColor: hit.project.color }}
+                  aria-hidden="true"
+                />
+                <span className="truncate">{hit.project.name}</span>
+              </>
+            )}
+            <span aria-hidden="true">·</span>
+            <span className="truncate">{hit.meeting.date}</span>
+          </p>
+        </div>
       </button>
     </li>
   )

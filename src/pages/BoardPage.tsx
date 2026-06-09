@@ -411,8 +411,11 @@ export default function BoardPage() {
   }
 
   return (
-    <div className="space-y-4 md:space-y-6">
-      <header className="flex flex-wrap items-start justify-between gap-3">
+    // The Board page claims a constrained height so each column can scroll
+    // its own card list independently. Math: viewport - top bar (56px) -
+    // Layout's vertical padding (24px each side on mobile, 32px on md+).
+    <div className="flex h-[calc(100vh-104px)] flex-col gap-3 md:h-[calc(100vh-120px)] md:gap-4">
+      <header className="flex shrink-0 flex-wrap items-start justify-between gap-3">
         <div>
           <h1 className="text-2xl font-semibold text-[var(--text-primary)]">Board</h1>
           <p className="mt-1 text-sm text-[var(--text-secondary)]">
@@ -438,23 +441,30 @@ export default function BoardPage() {
         </div>
       </header>
 
-      <FilterBar
-        projects={projects}
-        members={sortedMembersForFilter}
-        filters={filters}
-        onChange={setFilters}
-      />
+      {/* Filter bar stays put above the columns. Sticky + solid background
+          covers the case where the page body somehow scrolls (overflow on a
+          parent, etc.). */}
+      <div className="sticky top-0 z-20 shrink-0 bg-[var(--bg-base)]">
+        <FilterBar
+          projects={projects}
+          members={sortedMembersForFilter}
+          filters={filters}
+          onChange={setFilters}
+        />
+      </div>
 
       {!hasAnyTasks ? (
         <EmptyBoard />
       ) : filtersMatchNothing ? (
         <NoMatches onClear={() => setFilters(emptyFilters())} />
       ) : view === 'list' ? (
-        <TaskListView
-          tasks={filteredTasks}
-          projects={projects}
-          members={teamMembers}
-        />
+        <div className="min-h-0 flex-1 overflow-y-auto">
+          <TaskListView
+            tasks={filteredTasks}
+            projects={projects}
+            members={teamMembers}
+          />
+        </div>
       ) : (
         <DndContext
           sensors={sensors}
@@ -462,8 +472,12 @@ export default function BoardPage() {
           onDragEnd={handleDragEnd}
           onDragCancel={() => setActiveDragId(null)}
         >
-          <div className="-mx-4 overflow-x-auto px-4 md:mx-0 md:px-0">
-            <div className="flex gap-3 md:gap-4">
+          {/* Horizontal-scroll wrapper claims the remaining vertical space.
+              The inner board row has `overflow: visible` so dnd-kit's drag
+              overlay (which portals to <body> anyway) isn't clipped, and
+              each column manages its own vertical scroll. */}
+          <div className="-mx-4 min-h-0 flex-1 overflow-x-auto overflow-y-hidden px-4 md:mx-0 md:px-0">
+            <div className="flex h-full min-w-max gap-3 md:min-w-0 md:gap-4">
               {columnOrder.map((status) => (
                 <BoardColumn
                   key={status}

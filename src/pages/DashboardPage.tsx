@@ -9,6 +9,7 @@ import {
 } from 'lucide-react'
 import { CollapsibleSection } from '@/components/dashboard/CollapsibleSection'
 import { ProjectsGlance } from '@/components/dashboard/ProjectsGlance'
+import { RecentMeetings } from '@/components/dashboard/RecentMeetings'
 import { SummaryCard } from '@/components/dashboard/SummaryCard'
 import { WeekTimeline } from '@/components/dashboard/WeekTimeline'
 import {
@@ -48,7 +49,7 @@ const FILTER_OPTIONS: Array<{ value: ActivityFilter; label: string }> = [
 export default function DashboardPage() {
   useDocumentTitle('Dashboard')
   const { currentUser } = useAuth()
-  const { tasks, projects, activities, teamMembers, isInitialLoading } =
+  const { tasks, projects, activities, teamMembers, meetings, isInitialLoading } =
     useData()
 
   const summary = useMemo(() => computeSummary(tasks), [tasks])
@@ -138,6 +139,22 @@ export default function DashboardPage() {
         subtitle="Tasks due each day, Mon–Sun."
       >
         <WeekTimeline tasks={tasks} members={teamMembers} />
+      </CollapsibleSection>
+
+      <CollapsibleSection
+        id="recent-meetings"
+        title="Recent Meetings"
+        subtitle="The last three across every project."
+        controls={
+          <Link
+            to="/projects"
+            className="text-xs font-medium text-[var(--accent-primary)] hover:text-[var(--accent-hover)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent-focus)]"
+          >
+            View all
+          </Link>
+        }
+      >
+        <RecentMeetings meetings={meetings} projects={projects} />
       </CollapsibleSection>
 
       <CollapsibleSection id="needs-attention" title="Needs Attention">
