@@ -29,6 +29,10 @@ interface MeetingListRowProps {
   members: TeamMember[]
   /** URL to navigate to when the row is clicked. */
   to: string
+  /** Optional project context — rendered as a small coloured chip above
+   *  the title. Used by the cross-project Meetings index so each row
+   *  carries its project label; per-project lists omit it. */
+  projectChip?: { name: string; color: string }
 }
 
 const STATUS_STYLE: Record<
@@ -52,7 +56,7 @@ const STATUS_STYLE: Record<
   },
 }
 
-export function MeetingListRow({ meeting, members, to }: MeetingListRowProps) {
+export function MeetingListRow({ meeting, members, to, projectChip }: MeetingListRowProps) {
   const attendees = meeting.attendeeIds
     .map((id) => members.find((m) => m.id === id))
     .filter((m): m is TeamMember => Boolean(m))
@@ -75,6 +79,18 @@ export function MeetingListRow({ meeting, members, to }: MeetingListRowProps) {
       )}
     >
       <div className="min-w-0 flex-1">
+        {projectChip && (
+          <div className="mb-1 flex items-center gap-1.5">
+            <span
+              className="h-2 w-2 shrink-0 rounded-full"
+              style={{ backgroundColor: projectChip.color }}
+              aria-hidden="true"
+            />
+            <span className="truncate text-[11px] uppercase tracking-[0.5px] text-[var(--text-secondary)]">
+              {projectChip.name}
+            </span>
+          </div>
+        )}
         <div className="flex flex-wrap items-center gap-2">
           <h3
             className={cn(

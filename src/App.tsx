@@ -9,6 +9,7 @@ import MyTasksPage from '@/pages/MyTasksPage'
 import TaskDetailPage from '@/pages/TaskDetailPage'
 import ProjectsPage from '@/pages/ProjectsPage'
 import ProjectDetailPage from '@/pages/ProjectDetailPage'
+import MeetingsPage from '@/pages/MeetingsPage'
 import MeetingDetailPage from '@/pages/MeetingDetailPage'
 import TeamPage from '@/pages/TeamPage'
 import SettingsPage from '@/pages/SettingsPage'
@@ -41,6 +42,7 @@ function App() {
           <Route path="/tasks/:taskId" element={<TaskDetailPage />} />
           <Route path="/projects" element={<ProjectsPage />} />
           <Route path="/projects/:projectId" element={<ProjectDetailPage />} />
+          <Route path="/meetings" element={<MeetingsPage />} />
           <Route
             path="/projects/:projectId/meetings/:meetingId"
             element={<MeetingDetailPage />}
