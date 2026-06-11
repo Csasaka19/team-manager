@@ -49,8 +49,17 @@ const FILTER_OPTIONS: Array<{ value: ActivityFilter; label: string }> = [
 export default function DashboardPage() {
   useDocumentTitle('Dashboard')
   const { currentUser } = useAuth()
-  const { tasks, projects, activities, teamMembers, meetings, isInitialLoading } =
-    useData()
+  const {
+    tasks,
+    projects,
+    activities,
+    teamMembers,
+    meetings,
+    isInitialLoading,
+    syncError,
+    refreshFromAtlas,
+    dataSource,
+  } = useData()
 
   const summary = useMemo(() => computeSummary(tasks), [tasks])
   const attention = useMemo(
@@ -102,6 +111,28 @@ export default function DashboardPage() {
           Here&apos;s what&apos;s happening across your team.
         </p>
       </header>
+
+      {dataSource === 'atlas' && syncError && (
+        <div className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-[color-mix(in_srgb,var(--priority-medium)_25%,var(--border-subtle))] bg-[color-mix(in_srgb,var(--priority-medium)_8%,transparent)] px-4 py-3">
+          <div className="min-w-0">
+            <p className="text-sm font-medium text-[var(--text-primary)]">
+              Failed to load data from Atlas
+            </p>
+            <p className="mt-0.5 truncate text-xs text-[var(--text-secondary)]">
+              {syncError} — showing cached data.
+            </p>
+          </div>
+          <button
+            type="button"
+            onClick={() => {
+              void refreshFromAtlas()
+            }}
+            className="inline-flex h-8 items-center justify-center rounded-md border border-[var(--border-default)] bg-transparent px-3 text-xs font-medium text-[var(--text-primary)] transition-colors hover:bg-[var(--bg-elevated)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent-focus)]"
+          >
+            Retry
+          </button>
+        </div>
+      )}
 
       <CollapsibleSection id="summary" title="Summary">
         <div

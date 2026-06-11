@@ -1,4 +1,5 @@
 import { AccountSection } from '@/components/settings/AccountSection'
+import { AtlasDataOverview } from '@/components/settings/AtlasDataOverview'
 import { AtlasSection } from '@/components/settings/AtlasSection'
 import { DiscordSection } from '@/components/settings/DiscordSection'
 import { NotificationsSection } from '@/components/settings/NotificationsSection'
@@ -24,6 +25,7 @@ export default function SettingsPage() {
       </header>
 
       {isPM && <AtlasSection />}
+      {isPM && <AtlasDataOverview />}
       {isPM && <WorkspaceSection />}
       {isPM && <TagsSection />}
       {isPM && <TaskTemplatesSection />}

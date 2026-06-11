@@ -21,8 +21,15 @@ type Confirm = { kind: 'archive' | 'delete'; project: Project } | null
 export default function ProjectsPage() {
   useDocumentTitle('Projects')
   const { isPM } = useAuth()
-  const { projects, tasks, teamMembers, createProject, updateProject, deleteProject } =
-    useData()
+  const {
+    projects,
+    tasks,
+    teamMembers,
+    createProject,
+    updateProject,
+    deleteProject,
+    dataSource,
+  } = useData()
   const [searchParams, setSearchParams] = useSearchParams()
 
   const [tab, setTab] = useState<Tab>('active')
@@ -110,7 +117,13 @@ export default function ProjectsPage() {
             <button
               type="button"
               onClick={() => setCreateOpen(true)}
-              className="inline-flex h-9 items-center gap-1.5 rounded-md bg-[var(--accent-primary)] px-4 text-sm font-medium text-[var(--text-inverse)] transition-colors hover:bg-[var(--accent-hover)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent-focus)]"
+              disabled={dataSource === 'atlas'}
+              title={
+                dataSource === 'atlas'
+                  ? 'Projects are managed in Atlas'
+                  : undefined
+              }
+              className="inline-flex h-9 items-center gap-1.5 rounded-md bg-[var(--accent-primary)] px-4 text-sm font-medium text-[var(--text-inverse)] transition-colors hover:bg-[var(--accent-hover)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent-focus)] disabled:cursor-not-allowed disabled:opacity-50 disabled:hover:bg-[var(--accent-primary)]"
             >
               <Plus className="h-4 w-4" aria-hidden="true" />
               New Project

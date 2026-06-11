@@ -15,7 +15,7 @@ import { cn } from '@/lib/utils'
 export default function ProjectDetailPage() {
   const { projectId } = useParams<{ projectId: string }>()
   const { isPM } = useAuth()
-  const { projects, meetings, teamMembers, createMeeting } = useData()
+  const { projects, meetings, teamMembers, createMeeting, dataSource } = useData()
   const [newMeetingOpen, setNewMeetingOpen] = useState(false)
 
   const project = useMemo(
@@ -87,7 +87,13 @@ export default function ProjectDetailPage() {
           <button
             type="button"
             onClick={() => setNewMeetingOpen(true)}
-            className="inline-flex h-9 items-center gap-1.5 rounded-md bg-[var(--accent-primary)] px-4 text-sm font-medium text-[var(--text-inverse)] transition-colors hover:bg-[var(--accent-hover)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent-focus)]"
+            disabled={dataSource === 'atlas'}
+            title={
+              dataSource === 'atlas'
+                ? 'Meetings are extracted from Atlas manifests'
+                : undefined
+            }
+            className="inline-flex h-9 items-center gap-1.5 rounded-md bg-[var(--accent-primary)] px-4 text-sm font-medium text-[var(--text-inverse)] transition-colors hover:bg-[var(--accent-hover)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent-focus)] disabled:cursor-not-allowed disabled:opacity-50 disabled:hover:bg-[var(--accent-primary)]"
           >
             <Plus className="h-4 w-4" aria-hidden="true" />
             New Meeting

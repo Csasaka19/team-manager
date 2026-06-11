@@ -314,6 +314,10 @@ export interface DataStore {
   isRefreshing: boolean
   /** Force-refresh the Atlas snapshot. No-op in mock mode. */
   refreshFromAtlas: () => Promise<void>
+  /** Task ids the user has touched locally — used by the board to render a
+   *  "local change" indicator. Computed by diffing live tasks against the
+   *  last raw Atlas snapshot; empty in mock mode. */
+  locallyModifiedTaskIds: ReadonlySet<string>
   /** Workspace settings — persisted to localStorage so changes outlive a reload. */
   workspaceName: string
   /** Display labels for each canonical status, merged from defaults + user overrides. */
@@ -836,6 +840,22 @@ export function DataProvider({ children }: { children: ReactNode }) {
   const refreshFromAtlas = useCallback(async () => {
     await runAtlasLoad('refresh')
   }, [runAtlasLoad])
+
+  // Derive the locally-modified task id set every time tasks change in
+  // atlas mode. Reference equality against the last raw snapshot is the
+  // same signal the overlay diff uses — keeps the indicator in sync with
+  // what would be persisted on the next refresh.
+  const locallyModifiedTaskIds = useMemo<ReadonlySet<string>>(() => {
+    if (dataSource !== 'atlas') return new Set<string>()
+    const snap = snapshotRef.current
+    if (!snap) return new Set<string>()
+    const snapById = new Map(snap.tasks.map((t) => [t.id, t]))
+    const out = new Set<string>()
+    for (const t of tasks) {
+      if (snapById.get(t.id) !== t) out.add(t.id)
+    }
+    return out
+  }, [tasks, dataSource])
 
   // When Atlas mode kicks in, the team list flips from mock to API-derived.
   // A previously-logged-in mock user (e.g. `pm-1`) will no longer match
@@ -1923,6 +1943,7 @@ export function DataProvider({ children }: { children: ReactNode }) {
       syncError,
       isRefreshing,
       refreshFromAtlas,
+      locallyModifiedTaskIds,
       workspaceName,
       statusLabels,
       columnOrder,
@@ -1983,6 +2004,7 @@ export function DataProvider({ children }: { children: ReactNode }) {
       syncError,
       isRefreshing,
       refreshFromAtlas,
+      locallyModifiedTaskIds,
       workspaceName,
       statusLabels,
       columnOrder,

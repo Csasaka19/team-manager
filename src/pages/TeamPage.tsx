@@ -19,7 +19,8 @@ const ACTIVE_STATUSES = ['todo', 'in_progress', 'in_review'] as const
 export default function TeamPage() {
   useDocumentTitle('Team')
   const { currentUser, isPM } = useAuth()
-  const { teamMembers, tasks, inviteTeamMember, removeTeamMember } = useData()
+  const { teamMembers, tasks, inviteTeamMember, removeTeamMember, dataSource } =
+    useData()
 
   const [expandedId, setExpandedId] = useState<string | null>(null)
   const [inviteOpen, setInviteOpen] = useState(false)
@@ -95,7 +96,13 @@ export default function TeamPage() {
             <button
               type="button"
               onClick={() => setInviteOpen(true)}
-              className="inline-flex h-9 items-center gap-1.5 rounded-md bg-[var(--accent-primary)] px-4 text-sm font-medium text-[var(--text-inverse)] transition-colors hover:bg-[var(--accent-hover)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent-focus)]"
+              disabled={dataSource === 'atlas'}
+              title={
+                dataSource === 'atlas'
+                  ? 'Team members are managed in Atlas'
+                  : undefined
+              }
+              className="inline-flex h-9 items-center gap-1.5 rounded-md bg-[var(--accent-primary)] px-4 text-sm font-medium text-[var(--text-inverse)] transition-colors hover:bg-[var(--accent-hover)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent-focus)] disabled:cursor-not-allowed disabled:opacity-50 disabled:hover:bg-[var(--accent-primary)]"
             >
               <UserPlus className="h-4 w-4" aria-hidden="true" />
               Invite Member

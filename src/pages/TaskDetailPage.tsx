@@ -1,8 +1,9 @@
 import { useMemo, useState } from 'react'
 import { Link, useNavigate, useParams } from 'react-router-dom'
-import { ArrowLeft, FileQuestion } from 'lucide-react'
+import { ArrowLeft, FileQuestion, Radio } from 'lucide-react'
 import { toast } from 'sonner'
 import { ActivityCommentFeed } from '@/components/task-detail/ActivityCommentFeed'
+import { AtlasMarkdown } from '@/components/atlas/AtlasMarkdown'
 import { DescriptionEditor } from '@/components/task-detail/DescriptionEditor'
 import { SubtaskSection } from '@/components/task-detail/SubtaskSection'
 import { TagsSection } from '@/components/task-detail/TagsSection'
@@ -42,6 +43,7 @@ export default function TaskDetailPage() {
     teamMembers,
     tags,
     activities,
+    dataSource,
     updateTask,
     deleteTask,
     createSubtask,
@@ -151,13 +153,43 @@ export default function TaskDetailPage() {
         <MeetingSourceBanner sourceMeetingId={task.sourceMeetingId} />
       )}
 
-      <DescriptionEditor
-        value={task.description}
-        canEdit={canEditTask}
-        onSave={async (description) => {
-          await updateTask(task.id, { description })
-        }}
-      />
+      {dataSource === 'atlas' ? (
+        <section
+          aria-labelledby="task-description-heading"
+          className="space-y-2 rounded-lg border border-[var(--border-subtle)] bg-[var(--bg-surface)] p-4 md:p-5"
+        >
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <h2
+              id="task-description-heading"
+              className="text-xs font-semibold uppercase tracking-[0.5px] text-[var(--text-secondary)]"
+            >
+              Description
+            </h2>
+            <span
+              className="inline-flex items-center gap-1 rounded-full bg-[var(--bg-elevated)] px-2 py-0.5 text-[10px] font-medium uppercase tracking-[0.5px] text-[var(--text-secondary)]"
+              title="This task was fetched from the Atlas vault. The body is read-only because the Atlas API doesn't accept writes."
+            >
+              <Radio className="h-3 w-3" aria-hidden="true" />
+              Source: Atlas
+            </span>
+          </div>
+          {task.description ? (
+            <AtlasMarkdown content={task.description} />
+          ) : (
+            <p className="text-sm text-[var(--text-muted)]">
+              No description available from Atlas.
+            </p>
+          )}
+        </section>
+      ) : (
+        <DescriptionEditor
+          value={task.description}
+          canEdit={canEditTask}
+          onSave={async (description) => {
+            await updateTask(task.id, { description })
+          }}
+        />
+      )}
 
       <SubtaskSection
         task={task}

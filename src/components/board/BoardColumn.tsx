@@ -17,6 +17,9 @@ interface BoardColumnProps {
   /** Unresolved-question count per task — flows through to TaskCard's
    *  small "❓ N" badge. */
   unresolvedQuestionsByTask?: Map<string, number>
+  /** Ids of tasks edited locally in Atlas mode — drives TaskCard's
+   *  CloudOff badge. */
+  locallyModifiedTaskIds?: ReadonlySet<string>
   /** True when the active drag started anywhere (used to draw drop-target hint). */
   draggingTaskId: string | null
   /** Function deciding whether the current user can drag a given task. */
@@ -39,6 +42,7 @@ export function BoardColumn({
   projectById,
   memberById,
   unresolvedQuestionsByTask,
+  locallyModifiedTaskIds,
   draggingTaskId,
   canDragTask,
   selectedTaskId,
@@ -128,6 +132,7 @@ export function BoardColumn({
                 selectionActive={selectionActive}
                 onSelectToggle={onSelectToggle}
                 unresolvedQuestions={unresolvedQuestionsByTask?.get(task.id) ?? 0}
+                isLocallyModified={locallyModifiedTaskIds?.has(task.id) ?? false}
               />
             ))}
 
@@ -161,6 +166,7 @@ export function BoardColumn({
                       selectionActive={selectionActive}
                       onSelectToggle={onSelectToggle}
                       unresolvedQuestions={unresolvedQuestionsByTask?.get(task.id) ?? 0}
+                      isLocallyModified={locallyModifiedTaskIds?.has(task.id) ?? false}
                     />
                   ))}
               </>

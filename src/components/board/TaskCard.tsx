@@ -1,4 +1,4 @@
-import { AlertTriangle, Check } from 'lucide-react'
+import { AlertTriangle, Check, CloudOff } from 'lucide-react'
 import { useNavigate } from 'react-router-dom'
 import { useDraggable } from '@dnd-kit/core'
 import { CSS } from '@dnd-kit/utilities'
@@ -35,6 +35,10 @@ interface TaskCardProps {
   /** Number of unresolved Question comments on this task — drives the
    *  small "❓ N" badge next to the subtask progress. */
   unresolvedQuestions?: number
+  /** True when this task has been edited locally in Atlas mode (and
+   *  therefore won't match the API snapshot on the next refresh). Renders
+   *  a small CloudOff badge so the user knows the change isn't synced. */
+  isLocallyModified?: boolean
 }
 
 export function TaskCard({
@@ -50,6 +54,7 @@ export function TaskCard({
   selectionActive = false,
   onSelectToggle,
   unresolvedQuestions = 0,
+  isLocallyModified = false,
 }: TaskCardProps) {
   const navigate = useNavigate()
   // Drag is disabled site-wide while multi-select is active so a stray
@@ -145,6 +150,15 @@ export function TaskCard({
           className="absolute -left-1.5 -top-1.5 inline-flex h-5 w-5 items-center justify-center rounded-full bg-[var(--accent-primary)] text-[var(--text-inverse)] shadow-[0_1px_4px_rgba(0,0,0,0.35)]"
         >
           <Check className="h-3 w-3" strokeWidth={3} />
+        </span>
+      )}
+      {isLocallyModified && !overlay && (
+        <span
+          className="absolute -right-1.5 -top-1.5 inline-flex h-5 w-5 items-center justify-center rounded-full bg-[var(--bg-elevated)] text-[var(--priority-medium)] shadow-[0_1px_4px_rgba(0,0,0,0.25)] ring-1 ring-[var(--border-subtle)]"
+          title="Local change — Atlas is read-only, so this edit only lives in this browser"
+          aria-label="Local change, not synced to Atlas"
+        >
+          <CloudOff className="h-3 w-3" aria-hidden="true" />
         </span>
       )}
       <div className="mb-2 flex items-center gap-2">

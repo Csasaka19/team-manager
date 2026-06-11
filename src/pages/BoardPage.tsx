@@ -48,6 +48,7 @@ export default function BoardPage() {
     projects,
     teamMembers,
     activities,
+    locallyModifiedTaskIds,
     updateTask,
     bulkUpdateTasks,
     bulkDeleteTasks,
@@ -503,6 +504,7 @@ export default function BoardPage() {
                   projectById={projectById}
                   memberById={memberById}
                   unresolvedQuestionsByTask={unresolvedQuestionsByTask}
+                  locallyModifiedTaskIds={locallyModifiedTaskIds}
                   draggingTaskId={activeDragId}
                   canDragTask={canDragTask}
                   selectedTaskId={selectedId}
