@@ -23,11 +23,11 @@ export default function SettingsPage() {
         </p>
       </header>
 
+      {isPM && <AtlasSection />}
       {isPM && <WorkspaceSection />}
       {isPM && <TagsSection />}
       {isPM && <TaskTemplatesSection />}
       {isPM && <DiscordSection />}
-      {isPM && <AtlasSection />}
       <NotificationsSection />
       <AccountSection />
     </div>

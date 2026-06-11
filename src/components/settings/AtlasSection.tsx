@@ -1,10 +1,12 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { CheckCircle2, Eye, EyeOff, KeyRound, Loader2, XCircle } from 'lucide-react'
 import { toast } from 'sonner'
 import {
   clearAtlasOverride,
   getAtlasConfig,
   getAtlasConfigSource,
+  isAtlasConfigured,
+  notifyAtlasConfigChanged,
   setAtlasOverride,
   type AtlasConfigSource,
 } from '@/services/atlas/config'
@@ -12,13 +14,13 @@ import { AtlasApiError, fetchAtlasProjects } from '@/services/atlas/client'
 import { cn } from '@/lib/utils'
 
 /**
- * Per-browser override for the Atlas base URL + token. The env vars set in
- * `.env` are the default; saving here writes a localStorage entry that wins
- * over them. Clearing falls back to env defaults.
+ * PM-only Atlas API configuration. The env vars set in `.env` are the
+ * default; saving here writes a localStorage entry that wins over them.
  *
- * The "Test connection" button hits `/projects` (cheap, authenticated) and
- * reports the result — handy for verifying CORS and the token without
- * leaving the page.
+ * Includes a connection status dot (green/red/gray), a one-click silent
+ * ping on mount so the dot reflects reality when the page opens, and a
+ * notifyAtlasConfigChanged() call on save/reset so already-mounted Atlas
+ * pages refetch with the new config.
  */
 export function AtlasSection() {
   const [baseUrl, setBaseUrl] = useState<string>('')
@@ -29,7 +31,10 @@ export function AtlasSection() {
   )
   const [testing, setTesting] = useState(false)
   const [testResult, setTestResult] = useState<TestResult | null>(null)
+  const [pinging, setPinging] = useState<boolean>(false)
+  const pingedConfig = useRef<string | null>(null)
 
+  // Hydrate inputs + source labels from the resolved config on mount.
   useEffect(() => {
     const cfg = getAtlasConfig()
     setBaseUrl(cfg.baseUrl)
@@ -37,10 +42,46 @@ export function AtlasSection() {
     setSource(getAtlasConfigSource())
   }, [])
 
+  // Silent connection ping on mount (and whenever the saved config changes),
+  // so the status dot reflects reality without the user clicking Test. We
+  // dedupe by the resolved (baseUrl, token) tuple so opening Settings twice
+  // in the same browser tab doesn't double-fetch.
+  useEffect(() => {
+    if (!isAtlasConfigured()) return
+    const cfg = getAtlasConfig()
+    const fingerprint = `${cfg.baseUrl}::${cfg.token}`
+    if (pingedConfig.current === fingerprint) return
+    pingedConfig.current = fingerprint
+    let cancelled = false
+    setPinging(true)
+    fetchAtlasProjects()
+      .then((projects) => {
+        if (cancelled) return
+        setTestResult({
+          ok: true,
+          message: `Connected — saw ${projects.length} project${projects.length === 1 ? '' : 's'}.`,
+        })
+      })
+      .catch((err) => {
+        if (cancelled) return
+        setTestResult(testResultFromError(err))
+      })
+      .finally(() => {
+        if (!cancelled) setPinging(false)
+      })
+    return () => {
+      cancelled = true
+    }
+    // Run when the saved baseUrl/token actually change (handleSave / handleReset).
+  }, [source.baseUrl, source.token])
+
   const handleSave = () => {
     setAtlasOverride({ baseUrl: baseUrl.trim(), token: token.trim() })
     setSource(getAtlasConfigSource())
-    toast.success('Atlas settings saved.')
+    notifyAtlasConfigChanged()
+    // Force the silent ping to re-run with the new values.
+    pingedConfig.current = null
+    toast.success('API configuration saved.')
   }
 
   const handleReset = () => {
@@ -50,62 +91,62 @@ export function AtlasSection() {
     setToken(cfg.token)
     setSource(getAtlasConfigSource())
     setTestResult(null)
+    pingedConfig.current = null
+    notifyAtlasConfigChanged()
     toast.success('Reverted to env defaults.')
   }
 
   const handleTest = async () => {
     setTesting(true)
     setTestResult(null)
-    // Save first so the client picks up the latest values from the override.
+    // Persist first so the request uses the latest inputs.
     setAtlasOverride({ baseUrl: baseUrl.trim(), token: token.trim() })
     setSource(getAtlasConfigSource())
+    notifyAtlasConfigChanged()
     try {
       const projects = await fetchAtlasProjects()
+      const slugs = projects.slice(0, 8).map((p) => p.slug).join(', ')
+      const more = projects.length > 8 ? ` (+${projects.length - 8} more)` : ''
       setTestResult({
         ok: true,
-        message: `Reached Atlas — saw ${projects.length} project${projects.length === 1 ? '' : 's'}.`,
+        message: `Connected! Found ${projects.length} project${projects.length === 1 ? '' : 's'}.`,
+        ...(slugs ? { detail: `${slugs}${more}` } : {}),
       })
+      toast.success(`Connected! Found ${projects.length} projects.`)
+      pingedConfig.current = `${baseUrl.trim()}::${token.trim()}`
     } catch (err) {
-      if (err instanceof AtlasApiError) {
-        setTestResult({
-          ok: false,
-          message: err.message,
-          ...(err.detail ? { detail: err.detail } : {}),
-        })
-      } else {
-        setTestResult({
-          ok: false,
-          message: err instanceof Error ? err.message : 'Unknown error.',
-        })
-      }
+      const result = testResultFromError(err)
+      setTestResult(result)
+      toast.error(`Connection failed: ${result.message}`)
     } finally {
       setTesting(false)
     }
   }
 
-  const sourceLabel = useMemo(
-    () => describeSource(source),
-    [source],
-  )
-
+  const sourceLabel = useMemo(() => describeSource(source), [source])
   const canTest = baseUrl.trim().length > 0 && token.trim().length > 0
+  const status = deriveStatus({ source, testResult, pinging, testing })
 
   return (
     <section aria-labelledby="atlas-heading">
-      <h2
-        id="atlas-heading"
-        className="inline-flex items-center gap-2 text-lg font-semibold text-[var(--text-primary)]"
-      >
-        <KeyRound className="h-4 w-4" aria-hidden="true" />
-        Atlas Integration
-      </h2>
+      <div className="flex flex-wrap items-center gap-2">
+        <h2
+          id="atlas-heading"
+          className="inline-flex items-center gap-2 text-lg font-semibold text-[var(--text-primary)]"
+        >
+          <KeyRound className="h-4 w-4" aria-hidden="true" />
+          Atlas API Connection
+        </h2>
+        <StatusBadge status={status} />
+      </div>
       <p className="mt-1 text-sm text-[var(--text-secondary)]">
-        Connects the app to a read-only Atlas Control Center vault. The values
-        below override anything set via{' '}
+        Enter the Atlas Control Center API URL and read token. Data from Atlas
+        powers the <code className="rounded bg-[var(--bg-elevated)] px-1 py-0.5 font-mono text-[12px]">/atlas</code>{' '}
+        section (feed, tasks, summaries). On the team Tailscale network, use{' '}
         <code className="rounded bg-[var(--bg-elevated)] px-1 py-0.5 font-mono text-[12px]">
-          .env
-        </code>
-        . Override is local to this browser.
+          http://100.65.101.96:4005/api/public
+        </code>{' '}
+        for direct access; otherwise use the public Funnel URL.
       </p>
 
       <div className="mt-5 space-y-4 rounded-lg border border-[var(--border-subtle)] bg-[var(--bg-surface)] p-4 md:p-5">
@@ -114,7 +155,7 @@ export function AtlasSection() {
             htmlFor="atlas-base-url"
             className="block text-[11px] font-semibold uppercase tracking-[0.5px] text-[var(--text-secondary)]"
           >
-            Base URL
+            API Base URL
             <span className="ml-2 normal-case font-medium text-[10px] text-[var(--text-muted)]">
               from {sourceLabel.baseUrl}
             </span>
@@ -124,7 +165,7 @@ export function AtlasSection() {
             type="text"
             value={baseUrl}
             onChange={(e) => setBaseUrl(e.target.value)}
-            placeholder="http://localhost:4005/api/public"
+            placeholder="https://desktop-838pdes.taila3a424.ts.net:8443/api/public"
             spellCheck={false}
             autoComplete="off"
             className="mt-1 h-9 w-full rounded-md border border-[var(--border-subtle)] bg-[var(--bg-input)] px-3 text-sm text-[var(--text-primary)] outline-none focus:border-[var(--accent-primary)] focus:ring-2 focus:ring-[var(--accent-focus)]"
@@ -136,7 +177,7 @@ export function AtlasSection() {
             htmlFor="atlas-token"
             className="block text-[11px] font-semibold uppercase tracking-[0.5px] text-[var(--text-secondary)]"
           >
-            Read API token
+            API Token
             <span className="ml-2 normal-case font-medium text-[10px] text-[var(--text-muted)]">
               from {sourceLabel.token}
             </span>
@@ -177,7 +218,7 @@ export function AtlasSection() {
             onClick={handleSave}
             className="inline-flex h-9 items-center justify-center rounded-md bg-[var(--accent-primary)] px-4 text-sm font-medium text-[var(--text-inverse)] transition-colors hover:bg-[var(--accent-hover)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent-focus)]"
           >
-            Save override
+            Save
           </button>
           <button
             type="button"
@@ -188,7 +229,7 @@ export function AtlasSection() {
             {testing && (
               <Loader2 className="h-3.5 w-3.5 animate-spin" aria-hidden="true" />
             )}
-            Test connection
+            Test Connection
           </button>
           <button
             type="button"
@@ -234,10 +275,78 @@ export function AtlasSection() {
   )
 }
 
+type Status = 'connected' | 'failed' | 'unconfigured' | 'checking'
+
+interface DeriveStatusInput {
+  source: AtlasConfigSource
+  testResult: TestResult | null
+  pinging: boolean
+  testing: boolean
+}
+
+function deriveStatus({
+  source,
+  testResult,
+  pinging,
+  testing,
+}: DeriveStatusInput): Status {
+  if (source.baseUrl === 'unset' || source.token === 'unset') return 'unconfigured'
+  if (pinging || testing) return 'checking'
+  if (testResult?.ok === true) return 'connected'
+  if (testResult?.ok === false) return 'failed'
+  // Configured but never tested in this session.
+  return 'checking'
+}
+
+function StatusBadge({ status }: { status: Status }) {
+  const label =
+    status === 'connected'
+      ? 'Connected'
+      : status === 'failed'
+        ? 'Not connected'
+        : status === 'unconfigured'
+          ? 'Not configured'
+          : 'Checking…'
+
+  const dotClass =
+    status === 'connected'
+      ? 'bg-[var(--status-done)]'
+      : status === 'failed'
+        ? 'bg-[var(--priority-critical)]'
+        : status === 'unconfigured'
+          ? 'bg-[var(--text-muted)]'
+          : 'bg-[var(--accent-primary)] animate-pulse'
+
+  return (
+    <span
+      className="inline-flex items-center gap-1.5 rounded-full bg-[var(--bg-elevated)] px-2.5 py-1 text-[11px] font-medium text-[var(--text-secondary)]"
+      aria-live="polite"
+    >
+      <span
+        aria-hidden="true"
+        className={cn('inline-block h-2 w-2 rounded-full', dotClass)}
+      />
+      {label}
+    </span>
+  )
+}
+
 interface TestResult {
   ok: boolean
   message: string
   detail?: string
+}
+
+function testResultFromError(err: unknown): TestResult {
+  if (err instanceof AtlasApiError) {
+    const out: TestResult = { ok: false, message: err.message }
+    if (err.detail !== undefined) out.detail = err.detail
+    return out
+  }
+  return {
+    ok: false,
+    message: err instanceof Error ? err.message : 'Unknown error.',
+  }
 }
 
 function describeSource(source: AtlasConfigSource): {

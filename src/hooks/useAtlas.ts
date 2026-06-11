@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { AtlasApiError, type AtlasErrorCode } from '@/services/atlas/client'
+import { ATLAS_CONFIG_CHANGED_EVENT } from '@/services/atlas/config'
 
 export interface AtlasFetchState<T> {
   data: T | null
@@ -76,6 +77,15 @@ export function useAtlas<T>(
   }, [...deps, reloadKey])
 
   const reload = useCallback(() => setReloadKey((k) => k + 1), [])
+
+  // Re-run on Atlas config save / reset so already-mounted pages pick up the
+  // new base URL or token without a full reload.
+  useEffect(() => {
+    if (typeof window === 'undefined') return
+    const handler = () => setReloadKey((k) => k + 1)
+    window.addEventListener(ATLAS_CONFIG_CHANGED_EVENT, handler)
+    return () => window.removeEventListener(ATLAS_CONFIG_CHANGED_EVENT, handler)
+  }, [])
 
   return { data, error, loading, reload }
 }

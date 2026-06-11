@@ -82,6 +82,16 @@ export function clearAtlasOverride(): void {
   window.localStorage.removeItem(STORAGE_KEY)
 }
 
+/** Window event name that data-consuming hooks listen for so they refetch
+ *  with the new config without requiring a page reload. Settings fires this
+ *  on Save / Test / Reset. */
+export const ATLAS_CONFIG_CHANGED_EVENT = 'atlas-config-changed'
+
+export function notifyAtlasConfigChanged(): void {
+  if (typeof window === 'undefined') return
+  window.dispatchEvent(new Event(ATLAS_CONFIG_CHANGED_EVENT))
+}
+
 /** Where the env vars and override come from — surfaced in Settings so the
  *  user can see "you're running on the env-var defaults" vs "you've overridden
  *  these in this browser." */
