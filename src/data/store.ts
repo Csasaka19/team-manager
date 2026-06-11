@@ -26,6 +26,20 @@ import {
 } from '@/services/discord'
 import { useAuth } from './auth'
 import {
+  applyOverlayList,
+  emptyOverlay,
+  loadFromAtlas,
+  loadOverlay,
+  mergeDiffIntoOverlay,
+  saveOverlay,
+  type AtlasSnapshot,
+  type LocalOverlay,
+} from './atlas-bridge'
+import {
+  ATLAS_CONFIG_CHANGED_EVENT,
+  isAtlasConfigured,
+} from '@/services/atlas/config'
+import {
   mockActivities,
   mockMeetings,
   mockNotifications,
@@ -58,6 +72,7 @@ import {
 } from './types'
 
 const MUTATION_DELAY_MS = 800
+const ATLAS_REFRESH_INTERVAL_MS = 60_000
 
 /**
  * Brief artificial gate at provider mount so pages can render skeleton
@@ -284,6 +299,21 @@ export interface DataStore {
    *  show a skeleton against. Real backend will replace this with the
    *  network loading state. */
   isInitialLoading: boolean
+  // ── Atlas hybrid mode ────────────────────────────────────────────────
+  /** Source of the visible data: 'mock' when the in-memory fixtures are
+   *  authoritative, 'atlas' when the API is configured and reachable. */
+  dataSource: 'mock' | 'atlas'
+  /** ISO timestamp of the last successful Atlas snapshot, or null. */
+  lastSynced: Date | null
+  /** Human-readable error string from the most recent Atlas load, or null
+   *  if the last load fully succeeded. Per-source failures during a partial
+   *  load are joined with `;`. */
+  syncError: string | null
+  /** True while a background refresh is in flight (initial load uses
+   *  `isInitialLoading` instead). */
+  isRefreshing: boolean
+  /** Force-refresh the Atlas snapshot. No-op in mock mode. */
+  refreshFromAtlas: () => Promise<void>
   /** Workspace settings — persisted to localStorage so changes outlive a reload. */
   workspaceName: string
   /** Display labels for each canonical status, merged from defaults + user overrides. */
@@ -403,7 +433,7 @@ export interface DataStore {
 const DataContext = createContext<DataStore | null>(null)
 
 export function DataProvider({ children }: { children: ReactNode }) {
-  const { currentUser } = useAuth()
+  const { currentUser, logout } = useAuth()
   const [teamMembers, setTeamMembers] = useState<TeamMember[]>(mockTeamMembers)
   const [tags, setTags] = useState<Tag[]>(mockTags)
   const [projects, setProjects] = useState<Project[]>(mockProjects)
@@ -414,7 +444,31 @@ export function DataProvider({ children }: { children: ReactNode }) {
   const [inflight, setInflight] = useState(0)
   const [isInitialLoading, setIsInitialLoading] = useState(true)
 
+  // ── Atlas hybrid mode state ──────────────────────────────────────────
+  // `dataSource` flips to 'atlas' on first successful load; mutations stay
+  // local either way but, in 'atlas' mode, are diffed against the last raw
+  // API snapshot and persisted to the localStorage overlay so they survive
+  // the 60s refresh.
+  const [dataSource, setDataSource] = useState<'mock' | 'atlas'>('mock')
+  const [lastSynced, setLastSynced] = useState<Date | null>(null)
+  const [syncError, setSyncError] = useState<string | null>(null)
+  const [isRefreshing, setIsRefreshing] = useState<boolean>(false)
+  /** Raw API snapshot from the most recent successful load. The OVERLAY is
+   *  derived by diffing live state against this — any entity whose
+   *  reference no longer matches the snapshot's was touched locally. */
+  const snapshotRef = useRef<AtlasSnapshot | null>(null)
+  /** Local overlay, persisted to localStorage on every save. */
+  const overlayRef = useRef<LocalOverlay>(emptyOverlay())
+
   useEffect(() => {
+    // Read the persisted overlay once on mount so reloads keep local changes.
+    overlayRef.current = loadOverlay()
+  }, [])
+
+  useEffect(() => {
+    // Mock-mode initial-loading skeleton. In Atlas mode the loader below
+    // owns this flag instead.
+    if (isAtlasConfigured()) return
     const handle = window.setTimeout(
       () => setIsInitialLoading(false),
       INITIAL_LOAD_DELAY_MS,
@@ -651,6 +705,152 @@ export function DataProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     activitiesRef.current = activities
   }, [activities])
+
+  // Atlas refresh reads live state via refs so it can run inside an
+  // interval without churning callback dependencies. Meetings already have
+  // their own ref further down (line ~1500); we mirror it here as well so
+  // the refresh loop doesn't need to know about file layout.
+  const atlasMeetingsRef = useRef(meetings)
+  useEffect(() => {
+    atlasMeetingsRef.current = meetings
+  }, [meetings])
+
+  // ── Atlas hybrid loader ────────────────────────────────────────────────
+  // `runAtlasLoad` is the single source of truth for "go fetch and merge":
+  // mount, the 60s interval, manual refresh, and Settings save all funnel
+  // through it. Pure setters + refs mean it doesn't change identity.
+  const runAtlasLoad = useCallback(
+    async (mode: 'initial' | 'refresh') => {
+      if (!isAtlasConfigured()) {
+        setDataSource('mock')
+        setLastSynced(null)
+        setSyncError(null)
+        // Mock-mode initial-loading is handled by the 500ms setTimeout
+        // effect above — keep the skeleton visible the same way it was.
+        return
+      }
+      setDataSource('atlas')
+      if (mode === 'initial') setIsInitialLoading(true)
+      setIsRefreshing(true)
+      try {
+        const snapshot = await loadFromAtlas({
+          // Manifests rarely change between refreshes; we only enumerate
+          // them on the initial load (or manual refresh) to keep the
+          // 60-second tick under one request fan-out.
+          includeMeetings: mode === 'initial',
+        })
+        const overlay = overlayRef.current
+        const prevSnap = snapshotRef.current
+        let nextOverlay = overlay
+        // Capture any local changes since the previous snapshot BEFORE we
+        // replace the snapshot reference.
+        if (prevSnap) {
+          nextOverlay = mergeDiffIntoOverlay(
+            overlay,
+            tasksRef.current,
+            activitiesRef.current,
+            projectsRef.current,
+            atlasMeetingsRef.current,
+            prevSnap,
+          )
+          overlayRef.current = nextOverlay
+          saveOverlay(nextOverlay)
+        }
+        // Mutate the snapshot ref: keep meetings from the previous snapshot
+        // on a refresh-without-meetings; replace everything on initial.
+        const mergedSnapshot: AtlasSnapshot =
+          mode === 'initial' || !prevSnap
+            ? snapshot
+            : { ...snapshot, meetings: prevSnap.meetings }
+        snapshotRef.current = mergedSnapshot
+        // Apply overlay on top of the raw snapshot and push to live state.
+        setTasks(
+          applyOverlayList(
+            mergedSnapshot.tasks,
+            nextOverlay.tasks,
+            nextOverlay.taskTombstones,
+          ),
+        )
+        setActivities(
+          applyOverlayList(
+            mergedSnapshot.activities,
+            nextOverlay.activities,
+            nextOverlay.activityTombstones,
+          ),
+        )
+        setProjects(
+          applyOverlayList(
+            mergedSnapshot.projects,
+            nextOverlay.projects,
+            nextOverlay.projectTombstones,
+          ),
+        )
+        setMeetings(
+          applyOverlayList(
+            mergedSnapshot.meetings,
+            nextOverlay.meetings,
+            nextOverlay.meetingTombstones,
+          ),
+        )
+        setTeamMembers(mergedSnapshot.teamMembers)
+        setLastSynced(new Date(mergedSnapshot.loadedAt))
+        setSyncError(
+          mergedSnapshot.errors.length > 0
+            ? mergedSnapshot.errors
+                .map((e) => `${e.source}: ${e.message}`)
+                .join('; ')
+            : null,
+        )
+      } catch (err) {
+        setSyncError(err instanceof Error ? err.message : String(err))
+      } finally {
+        if (mode === 'initial') setIsInitialLoading(false)
+        setIsRefreshing(false)
+      }
+    },
+    [],
+  )
+
+  // Initial Atlas load + react to Settings → Atlas API saves (which fire
+  // ATLAS_CONFIG_CHANGED_EVENT). In mock mode this is a no-op apart from
+  // setting dataSource correctly.
+  useEffect(() => {
+    void runAtlasLoad('initial')
+    const handler = () => {
+      void runAtlasLoad('initial')
+    }
+    window.addEventListener(ATLAS_CONFIG_CHANGED_EVENT, handler)
+    return () => window.removeEventListener(ATLAS_CONFIG_CHANGED_EVENT, handler)
+  }, [runAtlasLoad])
+
+  // 60-second auto-refresh. Only runs in Atlas mode; tears down when
+  // mode flips back to mock (config cleared).
+  useEffect(() => {
+    if (dataSource !== 'atlas') return
+    const id = window.setInterval(() => {
+      void runAtlasLoad('refresh')
+    }, ATLAS_REFRESH_INTERVAL_MS)
+    return () => window.clearInterval(id)
+  }, [dataSource, runAtlasLoad])
+
+  const refreshFromAtlas = useCallback(async () => {
+    await runAtlasLoad('refresh')
+  }, [runAtlasLoad])
+
+  // When Atlas mode kicks in, the team list flips from mock to API-derived.
+  // A previously-logged-in mock user (e.g. `pm-1`) will no longer match
+  // anyone in the new team, leaving the UI showing a ghost user. Log them
+  // out so they re-pick from the Atlas dropdown.
+  useEffect(() => {
+    if (dataSource !== 'atlas') return
+    if (!currentUser) return
+    // Only enforce after the team list is populated — otherwise we'd log
+    // out during the brief gap while the snapshot is still loading.
+    if (teamMembers.length === 0) return
+    if (!teamMembers.some((m) => m.id === currentUser.id)) {
+      logout()
+    }
+  }, [dataSource, teamMembers, currentUser, logout])
 
   const emitDiscord = useCallback(
     (
@@ -1718,6 +1918,11 @@ export function DataProvider({ children }: { children: ReactNode }) {
       notifications,
       mutating: inflight > 0,
       isInitialLoading,
+      dataSource,
+      lastSynced,
+      syncError,
+      isRefreshing,
+      refreshFromAtlas,
       workspaceName,
       statusLabels,
       columnOrder,
@@ -1773,6 +1978,11 @@ export function DataProvider({ children }: { children: ReactNode }) {
       notifications,
       inflight,
       isInitialLoading,
+      dataSource,
+      lastSynced,
+      syncError,
+      isRefreshing,
+      refreshFromAtlas,
       workspaceName,
       statusLabels,
       columnOrder,
