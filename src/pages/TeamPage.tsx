@@ -76,6 +76,11 @@ export default function TeamPage() {
           <h1 className="text-2xl font-semibold text-[var(--text-primary)]">Team</h1>
           <p className="mt-1 text-sm text-[var(--text-secondary)]">
             {teamMembers.length} {teamMembers.length === 1 ? 'member' : 'members'} in this workspace.
+            {dataSource === 'atlas' && (
+              <span className="ml-2 text-[var(--text-muted)]">
+                · Team roster from Atlas
+              </span>
+            )}
           </p>
         </div>
         {isPM && (
@@ -128,7 +133,8 @@ export default function TeamPage() {
           const isExpanded = expandedId === m.id
           const memberTasks = tasksByMember.get(m.id) ?? []
           // PM can remove anyone except themselves.
-          const canRemove = isPM && m.id !== currentUser.id
+          const canRemove =
+            isPM && m.id !== currentUser.id && dataSource !== 'atlas'
           return (
             <div
               key={m.id}

@@ -318,6 +318,15 @@ export interface DataStore {
    *  "local change" indicator. Computed by diffing live tasks against the
    *  last raw Atlas snapshot; empty in mock mode. */
   locallyModifiedTaskIds: ReadonlySet<string>
+  /** Lookup maps of the entities the last raw Atlas snapshot contained.
+   *  Pages use these to ask "did this id originate from the API?" and to
+   *  show what the API still says (e.g. the board's "Atlas still shows: X"
+   *  tooltip on a locally-moved card). Empty maps in mock mode. */
+  snapshotIndex: {
+    tasksById: ReadonlyMap<string, Task>
+    projectsById: ReadonlyMap<string, Project>
+    meetingsById: ReadonlyMap<string, Meeting>
+  }
   /** Workspace settings — persisted to localStorage so changes outlive a reload. */
   workspaceName: string
   /** Display labels for each canonical status, merged from defaults + user overrides. */
@@ -457,6 +466,15 @@ export function DataProvider({ children }: { children: ReactNode }) {
   const [lastSynced, setLastSynced] = useState<Date | null>(null)
   const [syncError, setSyncError] = useState<string | null>(null)
   const [isRefreshing, setIsRefreshing] = useState<boolean>(false)
+  const [snapshotIndex, setSnapshotIndex] = useState<{
+    tasksById: ReadonlyMap<string, Task>
+    projectsById: ReadonlyMap<string, Project>
+    meetingsById: ReadonlyMap<string, Meeting>
+  }>(() => ({
+    tasksById: new Map(),
+    projectsById: new Map(),
+    meetingsById: new Map(),
+  }))
   /** Raw API snapshot from the most recent successful load. The OVERLAY is
    *  derived by diffing live state against this — any entity whose
    *  reference no longer matches the snapshot's was touched locally. */
@@ -729,6 +747,11 @@ export function DataProvider({ children }: { children: ReactNode }) {
         setDataSource('mock')
         setLastSynced(null)
         setSyncError(null)
+        setSnapshotIndex({
+          tasksById: new Map(),
+          projectsById: new Map(),
+          meetingsById: new Map(),
+        })
         // Mock-mode initial-loading is handled by the 500ms setTimeout
         // effect above — keep the skeleton visible the same way it was.
         return
@@ -797,6 +820,11 @@ export function DataProvider({ children }: { children: ReactNode }) {
           ),
         )
         setTeamMembers(mergedSnapshot.teamMembers)
+        setSnapshotIndex({
+          tasksById: new Map(mergedSnapshot.tasks.map((t) => [t.id, t])),
+          projectsById: new Map(mergedSnapshot.projects.map((p) => [p.id, p])),
+          meetingsById: new Map(mergedSnapshot.meetings.map((m) => [m.id, m])),
+        })
         setLastSynced(new Date(mergedSnapshot.loadedAt))
         setSyncError(
           mergedSnapshot.errors.length > 0
@@ -1944,6 +1972,7 @@ export function DataProvider({ children }: { children: ReactNode }) {
       isRefreshing,
       refreshFromAtlas,
       locallyModifiedTaskIds,
+      snapshotIndex,
       workspaceName,
       statusLabels,
       columnOrder,
@@ -2005,6 +2034,7 @@ export function DataProvider({ children }: { children: ReactNode }) {
       isRefreshing,
       refreshFromAtlas,
       locallyModifiedTaskIds,
+      snapshotIndex,
       workspaceName,
       statusLabels,
       columnOrder,

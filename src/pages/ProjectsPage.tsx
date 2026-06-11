@@ -29,6 +29,7 @@ export default function ProjectsPage() {
     updateProject,
     deleteProject,
     dataSource,
+    snapshotIndex,
   } = useData()
   const [searchParams, setSearchParams] = useSearchParams()
 
@@ -169,6 +170,9 @@ export default function ProjectsPage() {
               members={teamMembers}
               canEdit={isPM}
               onSettingsClick={() => setEditing(p)}
+              isAtlasManaged={
+                dataSource === 'atlas' && snapshotIndex.projectsById.has(p.id)
+              }
             />
           ))}
         </div>

@@ -2,6 +2,7 @@ import { Menu, Search } from 'lucide-react'
 import { NotificationBell } from '@/components/notifications/NotificationBell'
 import { useData } from '@/data/store'
 import { DataSourceBadge } from './DataSourceBadge'
+import { ForceRefreshButton } from './ForceRefreshButton'
 import { ThemeToggle } from './ThemeToggle'
 import { UserMenu } from './UserMenu'
 
@@ -31,6 +32,7 @@ export function TopBar({ onMobileMenuClick, onSearchClick }: TopBarProps) {
             {workspaceName}
           </span>
           <DataSourceBadge />
+          <ForceRefreshButton />
         </div>
 
         <div className="flex shrink-0 items-center gap-0.5 md:gap-1">

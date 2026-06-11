@@ -1,5 +1,5 @@
 import { Link } from 'react-router-dom'
-import { Settings } from 'lucide-react'
+import { Radio, Settings } from 'lucide-react'
 import { AvatarStack } from '@/components/shared/AvatarStack'
 import { cn } from '@/lib/utils'
 import { isOverdue, relativeTime } from '@/lib/date-utils'
@@ -11,6 +11,10 @@ interface ProjectCardProps {
   members: TeamMember[]
   canEdit: boolean
   onSettingsClick: () => void
+  /** True when this project came from the Atlas vault. Hides the
+   *  settings/delete/archive affordances and renders a subtle "Atlas"
+   *  badge. */
+  isAtlasManaged?: boolean
 }
 
 export function ProjectCard({
@@ -19,6 +23,7 @@ export function ProjectCard({
   members,
   canEdit,
   onSettingsClick,
+  isAtlasManaged = false,
 }: ProjectCardProps) {
   const open = tasks.filter((t) => t.status !== 'done').length
   const overdue = tasks.filter(
@@ -55,8 +60,17 @@ export function ProjectCard({
           <h3 className="min-w-0 truncate text-[15px] font-semibold text-[var(--text-primary)]">
             {project.name}
           </h3>
+          {isAtlasManaged && (
+            <span
+              className="pointer-events-auto inline-flex shrink-0 items-center gap-1 rounded-full bg-[var(--bg-elevated)] px-2 py-0.5 text-[10px] font-medium uppercase tracking-[0.5px] text-[var(--text-secondary)]"
+              title="Managed in Atlas — settings, archive, and delete are disabled."
+            >
+              <Radio className="h-3 w-3" aria-hidden="true" />
+              Atlas
+            </span>
+          )}
         </div>
-        {canEdit && (
+        {canEdit && !isAtlasManaged && (
           <button
             type="button"
             onClick={(e) => {

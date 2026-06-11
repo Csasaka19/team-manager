@@ -13,6 +13,7 @@ import { MeetingSourceBanner } from '@/components/task-detail/MeetingSourceBanne
 import { useAuth } from '@/data/auth'
 import { useData } from '@/data/store'
 import { useDocumentTitle } from '@/hooks/useDocumentTitle'
+import { useIsReadOnly } from '@/hooks/useIsReadOnly'
 import { useKeyboardShortcuts } from '@/hooks/useKeyboardShortcuts'
 import type { Priority, Subtask, TaskStatus } from '@/data/types'
 
@@ -82,6 +83,15 @@ export default function TaskDetailPage() {
   const canPMEdit = isPM
   const canMemberEdit = !isPM && assignedToMe
   const canEditTask = canPMEdit || canMemberEdit
+  // Atlas owns title / priority / assignee / due-date for any task that
+  // originated from the API. Status and subtasks stay editable — those
+  // are the team's working state, captured in the local overlay.
+  const isAtlasManaged = useIsReadOnly('task', task.id)
+  const canEditTitle = canEditTask && !isAtlasManaged
+  const canChangeAssignee = canPMEdit && !isAtlasManaged
+  const canChangePriority = canPMEdit && !isAtlasManaged
+  const canChangeDueDate = canEditTask && !isAtlasManaged
+  const canDeleteTask = canPMEdit && !isAtlasManaged
 
   const handleDelete = async () => {
     setConfirmOpen(false)
@@ -124,12 +134,12 @@ export default function TaskDetailPage() {
         project={project}
         members={teamMembers}
         creator={creator}
-        canEditTitle={canEditTask}
+        canEditTitle={canEditTitle}
         canChangeStatus={canEditTask}
-        canChangePriority={canPMEdit}
-        canChangeAssignee={canPMEdit}
-        canChangeDueDate={canEditTask}
-        canDelete={canPMEdit}
+        canChangePriority={canChangePriority}
+        canChangeAssignee={canChangeAssignee}
+        canChangeDueDate={canChangeDueDate}
+        canDelete={canDeleteTask}
         onUpdateTitle={(title) =>
           void safeUpdate('title', () => updateTask(task.id, { title }))
         }

@@ -49,6 +49,7 @@ export default function BoardPage() {
     teamMembers,
     activities,
     locallyModifiedTaskIds,
+    snapshotIndex,
     updateTask,
     bulkUpdateTasks,
     bulkDeleteTasks,
@@ -108,6 +109,20 @@ export default function BoardPage() {
     () => filterTasks(tasks, filters),
     [tasks, filters],
   )
+
+  // For each task whose local status differs from what Atlas still has,
+  // record the display label of the original status. Drives the board
+  // card's "Atlas still shows: X" tooltip on the RotateCw badge.
+  const atlasOriginalStatusLabelsByTask = useMemo(() => {
+    const map = new Map<string, string>()
+    for (const task of tasks) {
+      const original = snapshotIndex.tasksById.get(task.id)
+      if (!original) continue
+      if (original.status === task.status) continue
+      map.set(task.id, statusLabels[original.status])
+    }
+    return map
+  }, [tasks, snapshotIndex, statusLabels])
 
   // Unresolved-question count per task — drives the "❓ N" badge on
   // each board card. Counts only comment activities labeled "question"
@@ -505,6 +520,7 @@ export default function BoardPage() {
                   memberById={memberById}
                   unresolvedQuestionsByTask={unresolvedQuestionsByTask}
                   locallyModifiedTaskIds={locallyModifiedTaskIds}
+                  atlasOriginalStatusLabelsByTask={atlasOriginalStatusLabelsByTask}
                   draggingTaskId={activeDragId}
                   canDragTask={canDragTask}
                   selectedTaskId={selectedId}

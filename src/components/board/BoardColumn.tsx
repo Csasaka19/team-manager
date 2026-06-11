@@ -20,6 +20,10 @@ interface BoardColumnProps {
   /** Ids of tasks edited locally in Atlas mode — drives TaskCard's
    *  CloudOff badge. */
   locallyModifiedTaskIds?: ReadonlySet<string>
+  /** Map of task id → display label of the Atlas-side status, when the
+   *  local status differs. Drives TaskCard's "Atlas still shows: X"
+   *  tooltip. */
+  atlasOriginalStatusLabelsByTask?: ReadonlyMap<string, string>
   /** True when the active drag started anywhere (used to draw drop-target hint). */
   draggingTaskId: string | null
   /** Function deciding whether the current user can drag a given task. */
@@ -43,6 +47,7 @@ export function BoardColumn({
   memberById,
   unresolvedQuestionsByTask,
   locallyModifiedTaskIds,
+  atlasOriginalStatusLabelsByTask,
   draggingTaskId,
   canDragTask,
   selectedTaskId,
@@ -133,6 +138,9 @@ export function BoardColumn({
                 onSelectToggle={onSelectToggle}
                 unresolvedQuestions={unresolvedQuestionsByTask?.get(task.id) ?? 0}
                 isLocallyModified={locallyModifiedTaskIds?.has(task.id) ?? false}
+                atlasOriginalStatusLabel={
+                  atlasOriginalStatusLabelsByTask?.get(task.id) ?? null
+                }
               />
             ))}
 
@@ -167,6 +175,9 @@ export function BoardColumn({
                       onSelectToggle={onSelectToggle}
                       unresolvedQuestions={unresolvedQuestionsByTask?.get(task.id) ?? 0}
                       isLocallyModified={locallyModifiedTaskIds?.has(task.id) ?? false}
+                      atlasOriginalStatusLabel={
+                        atlasOriginalStatusLabelsByTask?.get(task.id) ?? null
+                      }
                     />
                   ))}
               </>

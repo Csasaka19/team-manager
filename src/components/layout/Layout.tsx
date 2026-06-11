@@ -20,6 +20,7 @@ import {
 } from '@/services/discord'
 import { QuickCreateFab } from './QuickCreateFab'
 import { Sidebar } from './Sidebar'
+import { StaleDataBanner } from './StaleDataBanner'
 import { TopBar } from './TopBar'
 
 const G_SEQUENCE_WINDOW_MS = 1500
@@ -223,6 +224,7 @@ export function Layout() {
       />
 
       <main className="md:pl-16 lg:pl-60 pt-14">
+        <StaleDataBanner />
         {/* Key on pathname so the fadeIn keyframe replays on every route
             change. ErrorBoundary is scoped here so a crashing page leaves
             the sidebar + top bar alive. */}
