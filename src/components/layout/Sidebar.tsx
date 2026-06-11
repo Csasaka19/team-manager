@@ -5,6 +5,7 @@ import {
   CheckSquare,
   FolderOpen,
   CalendarRange,
+  Radio,
   Users,
   Settings,
   type LucideIcon,
@@ -30,6 +31,7 @@ const sharedItems: NavItem[] = [
   { to: '/my-tasks', label: 'My Tasks', icon: CheckSquare },
   { to: '/projects', label: 'Projects', icon: FolderOpen },
   { to: '/meetings', label: 'Meetings', icon: CalendarRange },
+  { to: '/atlas', label: 'Atlas', icon: Radio },
   { to: '/team', label: 'Team', icon: Users },
 ]
 

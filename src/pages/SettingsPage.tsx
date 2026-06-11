@@ -1,4 +1,5 @@
 import { AccountSection } from '@/components/settings/AccountSection'
+import { AtlasSection } from '@/components/settings/AtlasSection'
 import { DiscordSection } from '@/components/settings/DiscordSection'
 import { NotificationsSection } from '@/components/settings/NotificationsSection'
 import { TagsSection } from '@/components/settings/TagsSection'
@@ -26,6 +27,7 @@ export default function SettingsPage() {
       {isPM && <TagsSection />}
       {isPM && <TaskTemplatesSection />}
       {isPM && <DiscordSection />}
+      {isPM && <AtlasSection />}
       <NotificationsSection />
       <AccountSection />
     </div>
