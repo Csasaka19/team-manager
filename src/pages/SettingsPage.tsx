@@ -1,5 +1,6 @@
 import { AccountSection } from '@/components/settings/AccountSection'
 import { AtlasDataOverview } from '@/components/settings/AtlasDataOverview'
+import { AtlasEndpointTable } from '@/components/settings/AtlasEndpointTable'
 import { AtlasSection } from '@/components/settings/AtlasSection'
 import { DiscordSection } from '@/components/settings/DiscordSection'
 import { NotificationsSection } from '@/components/settings/NotificationsSection'
@@ -26,6 +27,7 @@ export default function SettingsPage() {
 
       {isPM && <AtlasSection />}
       {isPM && <AtlasDataOverview />}
+      {isPM && <AtlasEndpointTable />}
       {isPM && <WorkspaceSection />}
       {isPM && <TagsSection />}
       {isPM && <TaskTemplatesSection />}
