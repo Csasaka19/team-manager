@@ -32,6 +32,9 @@ export type DiscordEvent =
   | 'task_completed'
   | 'task_overdue'
   | 'comment_posted'
+  | 'sheets_initial_sync'
+  | 'sheets_changes_detected'
+  | 'sheets_sync_failed'
 
 export interface DiscordSettings {
   webhookUrl: string
@@ -49,6 +52,13 @@ export const DEFAULT_DISCORD_SETTINGS: DiscordSettings = {
     task_completed: true,
     task_overdue: false,
     comment_posted: false,
+    // Sheets sync defaults: initial + failures opt-in by default
+    // (low-frequency, high-value signals); change notifications stay off
+    // by default since the 15-min poll can produce chatty bursts on a
+    // busy sheet.
+    sheets_initial_sync: true,
+    sheets_changes_detected: false,
+    sheets_sync_failed: true,
   },
 }
 
@@ -65,6 +75,9 @@ export interface DiscordEmbed {
   color?: number
   fields?: DiscordEmbedField[]
   timestamp?: string
+  /** Footer rendered as a small line beneath the embed body. Used by the
+   *  sheets-changes embed to mark itself as auto-generated. */
+  footer?: { text: string; icon_url?: string }
 }
 
 export interface DiscordWebhookBody {
@@ -80,6 +93,8 @@ const COLOR = {
   green: 2_278_750,
   amber: 15_844_367,
   red: 15_158_332,
+  teal: 1_356_885,
+  sheetsRed: 15_548_997,
 } as const
 
 /**
@@ -476,6 +491,136 @@ export function buildActionItemConvertedEmbed(args: {
     ],
     timestamp: new Date().toISOString(),
   }
+}
+
+// ── Google Sheets sync embeds ───────────────────────────────────────────
+
+export interface SheetsTabSyncSummary {
+  /** Display name of the tab (e.g., "Dev Projects"). */
+  name: string
+  /** Number of rows that mapped to tasks in this fetch. */
+  mappedTasks: number
+}
+
+/** Sent on the FIRST successful sheets load only — subsequent refreshes
+ *  use `buildSheetsChangesDetectedEmbed` instead so the channel doesn't
+ *  see a duplicate "synced" message every 15 minutes. */
+export function buildSheetsInitialSyncEmbed(args: {
+  projectLabel: string
+  tabs: SheetsTabSyncSummary[]
+  teamMemberNames: string[]
+}): DiscordEmbed {
+  const fields: DiscordEmbedField[] = args.tabs.map((t) => ({
+    name: t.name,
+    value: `${t.mappedTasks} task${t.mappedTasks === 1 ? '' : 's'} mapped`,
+    inline: true,
+  }))
+  // Discord caps a field value at 1024 chars. Truncate the member list
+  // gracefully if it's too long instead of silently dropping the field.
+  const memberValue = args.teamMemberNames.length
+    ? truncate(args.teamMemberNames.join(', '), 1000)
+    : '_(none)_'
+  fields.push({ name: 'Team Members', value: memberValue, inline: false })
+  return {
+    title: '📊 Google Sheets Synced',
+    description: `${args.projectLabel} project data loaded`,
+    color: COLOR.teal,
+    fields,
+    timestamp: new Date().toISOString(),
+  }
+}
+
+export type SheetsChangeKind = 'added' | 'removed' | 'updated'
+
+export interface SheetsTaskChange {
+  /** What kind of diff this is. */
+  kind: SheetsChangeKind
+  /** Mapped task title; falls back to the row id if no title survived. */
+  title: string
+  /** For `updated`: which field changed (status / priority / assignee). */
+  field?: 'status' | 'priority' | 'assignee'
+  /** For `updated`: old and new values (already display-formatted by the
+   *  caller). Optional for added/removed since there's nothing to compare. */
+  oldValue?: string | null
+  newValue?: string | null
+}
+
+/** Sent on a refresh that produces at least one diff vs the previous
+ *  fetch. Caps the body at 5 changes so the embed stays under Discord's
+ *  field-count limit; the description copy makes the overflow obvious. */
+export function buildSheetsChangesDetectedEmbed(args: {
+  projectLabel: string
+  changes: SheetsTaskChange[]
+}): DiscordEmbed {
+  const total = args.changes.length
+  const shown = args.changes.slice(0, 5)
+  const overflow = total - shown.length
+  const fields: DiscordEmbedField[] = shown.map((c) => {
+    if (c.kind === 'added') {
+      return { name: `+ ${truncate(c.title, 240)}`, value: '_New row_', inline: false }
+    }
+    if (c.kind === 'removed') {
+      return {
+        name: `– ${truncate(c.title, 240)}`,
+        value: '_Removed from spreadsheet_',
+        inline: false,
+      }
+    }
+    return {
+      name: truncate(c.title, 240),
+      value: `${describeValue(c.oldValue)} → ${describeValue(c.newValue)}`,
+      inline: false,
+    }
+  })
+  if (overflow > 0) {
+    fields.push({
+      name: '…',
+      value: `+${overflow} more change${overflow === 1 ? '' : 's'}`,
+      inline: false,
+    })
+  }
+  return {
+    title: '📊 Sheet Update Detected',
+    description: `${args.projectLabel} — ${total} change${total === 1 ? '' : 's'} since last sync`,
+    color: COLOR.teal,
+    fields,
+    footer: { text: 'Auto-synced from Google Sheets' },
+    timestamp: new Date().toISOString(),
+  }
+}
+
+export function buildSheetsSyncFailedEmbed(args: {
+  projectLabel: string
+  errorMessage: string
+  lastSuccessfulSync: Date | null
+}): DiscordEmbed {
+  const last = args.lastSuccessfulSync
+    ? args.lastSuccessfulSync.toISOString()
+    : 'never'
+  return {
+    title: '⚠️ Sheets Sync Failed',
+    description: `Could not refresh ${args.projectLabel} data`,
+    color: COLOR.sheetsRed,
+    fields: [
+      {
+        name: 'Error',
+        value: truncate(args.errorMessage || 'Unknown error', 1000),
+        inline: false,
+      },
+      { name: 'Last successful sync', value: last, inline: true },
+    ],
+    timestamp: new Date().toISOString(),
+  }
+}
+
+function describeValue(v: string | null | undefined): string {
+  if (v === null || v === undefined || v === '') return '_(empty)_'
+  return `\`${truncate(String(v), 120)}\``
+}
+
+function truncate(s: string, max: number): string {
+  if (s.length <= max) return s
+  return `${s.slice(0, max - 1)}…`
 }
 
 /** Sample embed used by the "Test webhook" button in Settings. */

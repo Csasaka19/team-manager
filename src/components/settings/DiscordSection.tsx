@@ -47,6 +47,24 @@ const EVENTS: EventOption[] = [
     label: 'Comment posted',
     description: 'Someone leaves a comment on any task.',
   },
+  {
+    key: 'sheets_initial_sync',
+    label: 'Sheets initial sync',
+    description:
+      'Posts once when the Google Sheets data finishes loading at startup — Contracting.com totals + team roster.',
+  },
+  {
+    key: 'sheets_changes_detected',
+    label: 'Sheets changes detected',
+    description:
+      'On each 15-min refresh, post a digest of added / removed / changed rows. Off by default — can be chatty on a busy sheet.',
+  },
+  {
+    key: 'sheets_sync_failed',
+    label: 'Sheets sync failed',
+    description:
+      'Alerts when a refresh errors out (revoked token, 5xx, network) so you find out before the team does.',
+  },
 ]
 
 const WEBHOOK_URL_PATTERN = /^https:\/\/discord(?:app)?\.com\/api\/webhooks\//i

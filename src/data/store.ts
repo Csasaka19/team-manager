@@ -15,6 +15,9 @@ import {
   buildBulkUpdateEmbed,
   buildCommentPostedEmbed,
   buildMeetingCompletedEmbed,
+  buildSheetsChangesDetectedEmbed,
+  buildSheetsInitialSyncEmbed,
+  buildSheetsSyncFailedEmbed,
   buildTaskAssignedEmbed,
   buildTaskCompletedEmbed,
   buildTaskCreatedEmbed,
@@ -23,6 +26,7 @@ import {
   sendDiscordWebhook,
   type DiscordEvent,
   type DiscordSettings,
+  type SheetsTaskChange,
 } from '@/services/discord'
 import { useAuth } from './auth'
 import {
@@ -87,6 +91,78 @@ import {
 const MUTATION_DELAY_MS = 800
 const ATLAS_REFRESH_INTERVAL_MS = 60_000
 const SHEETS_REFRESH_INTERVAL_FALLBACK_MS = 15 * 60 * 1000
+
+interface PrevSheetTask {
+  title: string
+  status: TaskStatus
+  priority: Priority
+  assigneeId: string | null
+}
+
+/**
+ * Diff the previous sheets snapshot against the current task list and
+ * emit a SheetsTaskChange[] suitable for Discord. Three categories:
+ *   - removed: previously-present task ids that don't appear in the new
+ *     fetch (row deleted from the sheet, or filter changed)
+ *   - added: new ids that weren't there last time
+ *   - updated: same id, but at least one of status / priority / assignee
+ *     changed. Title change alone doesn't count as a content change —
+ *     people rewrite titles all the time and it'd be noisy. The change
+ *     embed uses the NEW title as the label regardless.
+ *
+ * Status / priority values are humanised via the live statusLabels map
+ * so the Discord embed reads "To Do → In Progress", not "todo →
+ * in_progress".
+ */
+function diffSheetsTasks(
+  prev: ReadonlyMap<string, PrevSheetTask>,
+  nextTasks: Task[],
+  statusLabels: Record<TaskStatus, string>,
+): SheetsTaskChange[] {
+  const changes: SheetsTaskChange[] = []
+  const nextById = new Map(nextTasks.map((t) => [t.id, t]))
+
+  for (const [id, p] of prev) {
+    const n = nextById.get(id)
+    if (!n) {
+      changes.push({ kind: 'removed', title: p.title || id })
+      continue
+    }
+    if (p.status !== n.status) {
+      changes.push({
+        kind: 'updated',
+        title: n.title || id,
+        field: 'status',
+        oldValue: statusLabels[p.status] ?? p.status,
+        newValue: statusLabels[n.status] ?? n.status,
+      })
+    }
+    if (p.priority !== n.priority) {
+      changes.push({
+        kind: 'updated',
+        title: n.title || id,
+        field: 'priority',
+        oldValue: p.priority,
+        newValue: n.priority,
+      })
+    }
+    if (p.assigneeId !== n.assigneeId) {
+      changes.push({
+        kind: 'updated',
+        title: n.title || id,
+        field: 'assignee',
+        oldValue: p.assigneeId,
+        newValue: n.assigneeId,
+      })
+    }
+  }
+  for (const n of nextTasks) {
+    if (!prev.has(n.id)) {
+      changes.push({ kind: 'added', title: n.title || n.id })
+    }
+  }
+  return changes
+}
 
 /**
  * Brief artificial gate at provider mount so pages can render skeleton
@@ -529,6 +605,25 @@ export function DataProvider({ children }: { children: ReactNode }) {
    *  sync activity yet. Prevents the 15-min refresh from spamming the
    *  activity feed. */
   const sheetsInitialSyncedRef = useRef<boolean>(false)
+  /** Slim per-task snapshot from the previous successful sheets fetch.
+   *  Used by the Discord change-detection emitter to diff status /
+   *  priority / assignee against the new fetch. Title is kept so the
+   *  embed can label changes by the original task title even after a
+   *  row is removed. */
+  const prevSheetsTasksRef = useRef<Map<string, PrevSheetTask> | null>(null)
+  /** Time of the last successful Sheets fetch — surfaced in the
+   *  failure embed's "Last successful sync" field. */
+  const lastSheetsSyncRef = useRef<Date | null>(null)
+  /** Forward reference to emitDiscord (declared later in this file).
+   *  The Sheets loader populates this before emitDiscord exists, so we
+   *  guard every call site against the null case. */
+  const emitDiscordRef = useRef<
+    | ((
+        event: DiscordEvent,
+        builder: () => import('@/services/discord').DiscordEmbed,
+      ) => void)
+    | null
+  >(null)
 
   // Raw per-source snapshots — refs because the refresh loop reads the
   // latest values without needing to be a dependency of a useCallback.
@@ -1013,36 +1108,89 @@ export function DataProvider({ children }: { children: ReactNode }) {
       setSheetsConnected(true)
       setSheetsDiagnostics(diagnostics)
       setSheetsRawRowsByTaskId(rawRowsByTaskId)
-      // If Atlas isn't configured, "live" data is sheets-only — surface
-      // that on dataSource so the badge shows the right label.
       if (!isAtlasConfigured()) {
         setDataSource('google-sheets')
       }
       applyCombinedSnapshot({ meetingsMode: 'preserve-prior' })
-      // First successful sheets load → one summary activity. Subsequent
-      // refreshes don't emit (would be noisy at the 15-min cadence).
-      if (!sheetsInitialSyncedRef.current && snapshot.tasks.length > 0) {
+
+      const isFirstLoad = !sheetsInitialSyncedRef.current
+      lastSheetsSyncRef.current = new Date(snapshot.loadedAt)
+
+      if (isFirstLoad && snapshot.tasks.length > 0) {
+        // One-time initial-sync activity for the in-app feed.
         sheetsInitialSyncedRef.current = true
         const entry: Activity = {
           id: `sheets-sync-${snapshot.loadedAt}`,
           taskId: null,
           actorId: 'sheets-import',
           type: 'creation',
-          content: `Synced ${snapshot.tasks.length} task${
-            snapshot.tasks.length === 1 ? '' : 's'
-          } from Google Sheets for Contracting.com`,
+          content: `Synced ${snapshot.tasks.length} task${snapshot.tasks.length === 1 ? '' : 's'} from Google Sheets for Contracting.com`,
           mentions: [],
           createdAt: snapshot.loadedAt,
           projectId: SHEETS_PROJECT_ID,
         }
         setActivities((prev) => [entry, ...prev])
+
+        // Initial Discord post — fires regardless of how many fetches
+        // happen in this session, but only after the FIRST successful
+        // one. Gated by `sheets_initial_sync` toggle in Discord settings.
+        emitDiscordRef.current?.('sheets_initial_sync', () =>
+          buildSheetsInitialSyncEmbed({
+            projectLabel: 'Contracting.com',
+            tabs: diagnostics.map((d) => ({
+              name: d.tabName,
+              mappedTasks: d.mappedTasks,
+            })),
+            teamMemberNames: snapshot.teamMembers.map((m) => m.name),
+          }),
+        )
+      } else if (!isFirstLoad && prevSheetsTasksRef.current) {
+        // Refresh: diff against the previous snapshot and post only if
+        // something actually changed.
+        const changes = diffSheetsTasks(
+          prevSheetsTasksRef.current,
+          snapshot.tasks,
+          statusLabelsRef.current,
+        )
+        if (changes.length > 0) {
+          emitDiscordRef.current?.('sheets_changes_detected', () =>
+            buildSheetsChangesDetectedEmbed({
+              projectLabel: 'Contracting.com',
+              changes,
+            }),
+          )
+        }
       }
+
+      // Roll the diff snapshot forward for the next refresh.
+      prevSheetsTasksRef.current = new Map(
+        snapshot.tasks.map((t) => [
+          t.id,
+          {
+            title: t.title,
+            status: t.status,
+            priority: t.priority,
+            assigneeId: t.assigneeId,
+          },
+        ]),
+      )
     } catch (err) {
       sheetsRawRef.current = null
       setSheetsConnected(false)
       setSheetsDiagnostics(null)
       setSheetsRawRowsByTaskId(new Map())
-      setSyncError(err instanceof Error ? err.message : String(err))
+      const message = err instanceof Error ? err.message : String(err)
+      setSyncError(message)
+      // Failure embed — gated by sheets_sync_failed toggle. Useful when
+      // the auth token has expired or the spreadsheet is temporarily
+      // 5xx-ing; saves the user from finding out hours later.
+      emitDiscordRef.current?.('sheets_sync_failed', () =>
+        buildSheetsSyncFailedEmbed({
+          projectLabel: 'Contracting.com',
+          errorMessage: message,
+          lastSuccessfulSync: lastSheetsSyncRef.current,
+        }),
+      )
     } finally {
       setIsRefreshing(false)
     }
@@ -1113,6 +1261,12 @@ export function DataProvider({ children }: { children: ReactNode }) {
     },
     [],
   )
+
+  // The Sheets loader (declared earlier in the file for hook-ordering
+  // reasons) needs emitDiscord to send sync events. We route through a
+  // ref so the loader doesn't have to depend on emitDiscord's identity
+  // and so file order stays flexible.
+  emitDiscordRef.current = emitDiscord
 
   const testDiscordWebhook = useCallback<DataStore['testDiscordWebhook']>(
     async () => {
