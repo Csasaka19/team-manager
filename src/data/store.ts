@@ -36,9 +36,19 @@ import {
   type LocalOverlay,
 } from './atlas-bridge'
 import {
+  combineSourceSnapshots,
+  loadFromSheets,
+  SHEETS_PROJECT_ID,
+} from './sheets-bridge'
+import {
   ATLAS_CONFIG_CHANGED_EVENT,
   isAtlasConfigured,
 } from '@/services/atlas/config'
+import {
+  getPollIntervalMinutes,
+  isGoogleSheetsConfigured,
+} from '@/services/google-sheets-config'
+import type { TabDiagnostics } from '@/services/sheets-mapper'
 import {
   mockActivities,
   mockMeetings,
@@ -73,6 +83,7 @@ import {
 
 const MUTATION_DELAY_MS = 800
 const ATLAS_REFRESH_INTERVAL_MS = 60_000
+const SHEETS_REFRESH_INTERVAL_FALLBACK_MS = 15 * 60 * 1000
 
 /**
  * Brief artificial gate at provider mount so pages can render skeleton
@@ -302,7 +313,7 @@ export interface DataStore {
   // ── Atlas hybrid mode ────────────────────────────────────────────────
   /** Source of the visible data: 'mock' when the in-memory fixtures are
    *  authoritative, 'atlas' when the API is configured and reachable. */
-  dataSource: 'mock' | 'atlas'
+  dataSource: 'mock' | 'atlas' | 'google-sheets'
   /** ISO timestamp of the last successful Atlas snapshot, or null. */
   lastSynced: Date | null
   /** Human-readable error string from the most recent Atlas load, or null
@@ -318,6 +329,19 @@ export interface DataStore {
    *  "local change" indicator. Computed by diffing live tasks against the
    *  last raw Atlas snapshot; empty in mock mode. */
   locallyModifiedTaskIds: ReadonlySet<string>
+  /** True iff Google Sheets is configured AND the most recent fetch
+   *  produced data. Atlas tracks its own connection via `dataSource`. */
+  sheetsConnected: boolean
+  /** Per-tab column-mapping diagnostics from the last successful sheets
+   *  fetch. Null in mock mode or before the first load completes. */
+  sheetsDiagnostics: TabDiagnostics[] | null
+  /** Per-project source-of-truth map. Pages don't usually need this —
+   *  they read the projects/tasks directly — but Settings renders it
+   *  and the badge tooltip can use it. */
+  projectDataSources: ProjectDataSource[]
+  /** Manually re-pull from Google Sheets. No-op when Sheets isn't
+   *  configured. */
+  refreshFromSheets: () => Promise<void>
   /** Lookup maps of the entities the last raw Atlas snapshot contained.
    *  Pages use these to ask "did this id originate from the API?" and to
    *  show what the API still says (e.g. the board's "Atlas still shows: X"
@@ -443,6 +467,15 @@ export interface DataStore {
   markAllNotificationsRead: (recipientId?: string) => void
 }
 
+export type DataSourceType = 'mock' | 'atlas' | 'google-sheets'
+
+export interface ProjectDataSource {
+  projectId: string
+  source: DataSourceType
+  lastFetched: Date | null
+  error: string | null
+}
+
 const DataContext = createContext<DataStore | null>(null)
 
 export function DataProvider({ children }: { children: ReactNode }) {
@@ -462,7 +495,7 @@ export function DataProvider({ children }: { children: ReactNode }) {
   // local either way but, in 'atlas' mode, are diffed against the last raw
   // API snapshot and persisted to the localStorage overlay so they survive
   // the 60s refresh.
-  const [dataSource, setDataSource] = useState<'mock' | 'atlas'>('mock')
+  const [dataSource, setDataSource] = useState<'mock' | 'atlas' | 'google-sheets'>('mock')
   const [lastSynced, setLastSynced] = useState<Date | null>(null)
   const [syncError, setSyncError] = useState<string | null>(null)
   const [isRefreshing, setIsRefreshing] = useState<boolean>(false)
@@ -475,6 +508,21 @@ export function DataProvider({ children }: { children: ReactNode }) {
     projectsById: new Map(),
     meetingsById: new Map(),
   }))
+  const [sheetsConnected, setSheetsConnected] = useState<boolean>(false)
+  const [sheetsDiagnostics, setSheetsDiagnostics] = useState<
+    TabDiagnostics[] | null
+  >(null)
+  const [projectDataSources, setProjectDataSources] = useState<
+    ProjectDataSource[]
+  >([])
+
+  // Raw per-source snapshots — refs because the refresh loop reads the
+  // latest values without needing to be a dependency of a useCallback.
+  // The MERGED snapshot (atlas+sheets combined) is what we diff against
+  // for the overlay; storing both raws lets either source refresh
+  // independently and still produce a correct merge.
+  const atlasRawRef = useRef<AtlasSnapshot | null>(null)
+  const sheetsRawRef = useRef<AtlasSnapshot | null>(null)
   /** Raw API snapshot from the most recent successful load. The OVERLAY is
    *  derived by diffing live state against this — any entity whose
    *  reference no longer matches the snapshot's was touched locally. */
@@ -737,13 +785,126 @@ export function DataProvider({ children }: { children: ReactNode }) {
     atlasMeetingsRef.current = meetings
   }, [meetings])
 
-  // ── Atlas hybrid loader ────────────────────────────────────────────────
-  // `runAtlasLoad` is the single source of truth for "go fetch and merge":
-  // mount, the 60s interval, manual refresh, and Settings save all funnel
-  // through it. Pure setters + refs mean it doesn't change identity.
+  // ── Hybrid loader (Atlas + Google Sheets) ─────────────────────────────
+  // The store keeps the two raw snapshots in refs and recombines them
+  // every time either source finishes a load. The MERGED result is what
+  // we diff against for the overlay and push to live state — that way
+  // a sheets refresh doesn't blow away local edits to Atlas tasks and
+  // vice versa.
+
+  /**
+   * Pure application step: take the current raw snapshots from refs,
+   * merge them, capture any local changes vs. the prior merged snapshot,
+   * update the overlay, set live state. Called by both atlas and sheets
+   * loaders after they mutate their raw ref.
+   */
+  const applyCombinedSnapshot = useCallback(
+    (opts: { meetingsMode: 'fresh' | 'preserve-prior' }) => {
+      const merged = combineSourceSnapshots(
+        atlasRawRef.current,
+        sheetsRawRef.current,
+      )
+      // `meetingsMode === 'preserve-prior'` covers the 60s Atlas refresh
+      // which skips manifests (and therefore meetings) — keep whatever
+      // was in the previous merged snapshot rather than dropping all
+      // meetings.
+      const prevSnap = snapshotRef.current
+      const effective: AtlasSnapshot =
+        opts.meetingsMode === 'preserve-prior' && prevSnap
+          ? { ...merged, meetings: prevSnap.meetings }
+          : merged
+
+      // Diff live state vs. prior merged snapshot → overlay update.
+      const overlay = overlayRef.current
+      let nextOverlay = overlay
+      if (prevSnap) {
+        nextOverlay = mergeDiffIntoOverlay(
+          overlay,
+          tasksRef.current,
+          activitiesRef.current,
+          projectsRef.current,
+          atlasMeetingsRef.current,
+          prevSnap,
+        )
+        overlayRef.current = nextOverlay
+        saveOverlay(nextOverlay)
+      }
+      snapshotRef.current = effective
+
+      // Project source map — used by Settings + the badge tooltip.
+      const projectSources: ProjectDataSource[] = []
+      const sheetsProjects = new Set(
+        (sheetsRawRef.current?.projects ?? []).map((p) => p.id),
+      )
+      const atlasProjects = new Set(
+        (atlasRawRef.current?.projects ?? []).map((p) => p.id),
+      )
+      const loadedAt = new Date(effective.loadedAt)
+      for (const p of effective.projects) {
+        const source: DataSourceType = sheetsProjects.has(p.id)
+          ? 'google-sheets'
+          : atlasProjects.has(p.id)
+            ? 'atlas'
+            : 'mock'
+        projectSources.push({
+          projectId: p.id,
+          source,
+          lastFetched: loadedAt,
+          error: null,
+        })
+      }
+      setProjectDataSources(projectSources)
+
+      // Push merged snapshot + overlay into live state.
+      setTasks(
+        applyOverlayList(effective.tasks, nextOverlay.tasks, nextOverlay.taskTombstones),
+      )
+      setActivities(
+        applyOverlayList(
+          effective.activities,
+          nextOverlay.activities,
+          nextOverlay.activityTombstones,
+        ),
+      )
+      setProjects(
+        applyOverlayList(
+          effective.projects,
+          nextOverlay.projects,
+          nextOverlay.projectTombstones,
+        ),
+      )
+      setMeetings(
+        applyOverlayList(
+          effective.meetings,
+          nextOverlay.meetings,
+          nextOverlay.meetingTombstones,
+        ),
+      )
+      setTeamMembers(effective.teamMembers)
+      setSnapshotIndex({
+        tasksById: new Map(effective.tasks.map((t) => [t.id, t])),
+        projectsById: new Map(effective.projects.map((p) => [p.id, p])),
+        meetingsById: new Map(effective.meetings.map((m) => [m.id, m])),
+      })
+      setLastSynced(new Date(effective.loadedAt))
+      setSyncError(
+        effective.errors.length > 0
+          ? effective.errors.map((e) => `${e.source}: ${e.message}`).join('; ')
+          : null,
+      )
+    },
+    [],
+  )
+
+  // `runAtlasLoad` is the single source of truth for "go fetch from Atlas
+  // and merge into the store." Mount, the 60s interval, manual refresh,
+  // and Settings save all funnel through it.
   const runAtlasLoad = useCallback(
     async (mode: 'initial' | 'refresh') => {
-      if (!isAtlasConfigured()) {
+      const atlasOn = isAtlasConfigured()
+      const sheetsOn = isGoogleSheetsConfigured()
+      if (!atlasOn && !sheetsOn) {
+        // No live source configured anywhere — mock mode.
         setDataSource('mock')
         setLastSynced(null)
         setSyncError(null)
@@ -752,8 +913,19 @@ export function DataProvider({ children }: { children: ReactNode }) {
           projectsById: new Map(),
           meetingsById: new Map(),
         })
-        // Mock-mode initial-loading is handled by the 500ms setTimeout
-        // effect above — keep the skeleton visible the same way it was.
+        setProjectDataSources([])
+        atlasRawRef.current = null
+        return
+      }
+      if (!atlasOn) {
+        // Sheets configured but Atlas isn't — surface that state but
+        // don't actually fetch atlas (loadFromAtlas would throw on
+        // not-configured anyway). Sheets' own loader handles its half.
+        if (sheetsRawRef.current) {
+          setDataSource('google-sheets')
+        } else {
+          setDataSource('mock')
+        }
         return
       }
       setDataSource('atlas')
@@ -765,74 +937,14 @@ export function DataProvider({ children }: { children: ReactNode }) {
           // them on the initial load (or manual refresh) to keep the
           // 60-second tick under one request fan-out.
           includeMeetings: mode === 'initial',
+          // When Sheets is active, it owns contracting-com — suppress
+          // Atlas's copy so the two sources don't collide on the same id.
+          excludeProjectIds: sheetsOn ? [SHEETS_PROJECT_ID] : [],
         })
-        const overlay = overlayRef.current
-        const prevSnap = snapshotRef.current
-        let nextOverlay = overlay
-        // Capture any local changes since the previous snapshot BEFORE we
-        // replace the snapshot reference.
-        if (prevSnap) {
-          nextOverlay = mergeDiffIntoOverlay(
-            overlay,
-            tasksRef.current,
-            activitiesRef.current,
-            projectsRef.current,
-            atlasMeetingsRef.current,
-            prevSnap,
-          )
-          overlayRef.current = nextOverlay
-          saveOverlay(nextOverlay)
-        }
-        // Mutate the snapshot ref: keep meetings from the previous snapshot
-        // on a refresh-without-meetings; replace everything on initial.
-        const mergedSnapshot: AtlasSnapshot =
-          mode === 'initial' || !prevSnap
-            ? snapshot
-            : { ...snapshot, meetings: prevSnap.meetings }
-        snapshotRef.current = mergedSnapshot
-        // Apply overlay on top of the raw snapshot and push to live state.
-        setTasks(
-          applyOverlayList(
-            mergedSnapshot.tasks,
-            nextOverlay.tasks,
-            nextOverlay.taskTombstones,
-          ),
-        )
-        setActivities(
-          applyOverlayList(
-            mergedSnapshot.activities,
-            nextOverlay.activities,
-            nextOverlay.activityTombstones,
-          ),
-        )
-        setProjects(
-          applyOverlayList(
-            mergedSnapshot.projects,
-            nextOverlay.projects,
-            nextOverlay.projectTombstones,
-          ),
-        )
-        setMeetings(
-          applyOverlayList(
-            mergedSnapshot.meetings,
-            nextOverlay.meetings,
-            nextOverlay.meetingTombstones,
-          ),
-        )
-        setTeamMembers(mergedSnapshot.teamMembers)
-        setSnapshotIndex({
-          tasksById: new Map(mergedSnapshot.tasks.map((t) => [t.id, t])),
-          projectsById: new Map(mergedSnapshot.projects.map((p) => [p.id, p])),
-          meetingsById: new Map(mergedSnapshot.meetings.map((m) => [m.id, m])),
+        atlasRawRef.current = snapshot
+        applyCombinedSnapshot({
+          meetingsMode: mode === 'initial' ? 'fresh' : 'preserve-prior',
         })
-        setLastSynced(new Date(mergedSnapshot.loadedAt))
-        setSyncError(
-          mergedSnapshot.errors.length > 0
-            ? mergedSnapshot.errors
-                .map((e) => `${e.source}: ${e.message}`)
-                .join('; ')
-            : null,
-        )
       } catch (err) {
         setSyncError(err instanceof Error ? err.message : String(err))
       } finally {
@@ -869,12 +981,65 @@ export function DataProvider({ children }: { children: ReactNode }) {
     await runAtlasLoad('refresh')
   }, [runAtlasLoad])
 
+  // ── Sheets loader ─────────────────────────────────────────────────────
+  // Sheets has the same shape as Atlas but its own cadence (15 min vs 60s),
+  // its own diagnostics, and its own success flag. It always shares the
+  // overlay + snapshot-merge plumbing with Atlas via applyCombinedSnapshot.
+  const runSheetsLoad = useCallback(async () => {
+    if (!isGoogleSheetsConfigured()) {
+      sheetsRawRef.current = null
+      setSheetsConnected(false)
+      setSheetsDiagnostics(null)
+      return
+    }
+    setIsRefreshing(true)
+    try {
+      const { snapshot, diagnostics } = await loadFromSheets()
+      sheetsRawRef.current = snapshot
+      setSheetsConnected(true)
+      setSheetsDiagnostics(diagnostics)
+      // If Atlas isn't configured, "live" data is sheets-only — surface
+      // that on dataSource so the badge shows the right label.
+      if (!isAtlasConfigured()) {
+        setDataSource('google-sheets')
+      }
+      applyCombinedSnapshot({ meetingsMode: 'preserve-prior' })
+    } catch (err) {
+      sheetsRawRef.current = null
+      setSheetsConnected(false)
+      setSheetsDiagnostics(null)
+      setSyncError(err instanceof Error ? err.message : String(err))
+    } finally {
+      setIsRefreshing(false)
+    }
+  }, [applyCombinedSnapshot])
+
+  // Initial Sheets load + 15-min refresh interval. Independent of the
+  // Atlas effects so the two sources can be configured independently.
+  useEffect(() => {
+    void runSheetsLoad()
+  }, [runSheetsLoad])
+
+  useEffect(() => {
+    if (!isGoogleSheetsConfigured()) return
+    const intervalMs =
+      getPollIntervalMinutes() * 60 * 1000 || SHEETS_REFRESH_INTERVAL_FALLBACK_MS
+    const id = window.setInterval(() => {
+      void runSheetsLoad()
+    }, intervalMs)
+    return () => window.clearInterval(id)
+  }, [runSheetsLoad])
+
+  const refreshFromSheets = useCallback(async () => {
+    await runSheetsLoad()
+  }, [runSheetsLoad])
+
   // Derive the locally-modified task id set every time tasks change in
-  // atlas mode. Reference equality against the last raw snapshot is the
-  // same signal the overlay diff uses — keeps the indicator in sync with
-  // what would be persisted on the next refresh.
+  // a live-data mode. Reference equality against the last MERGED snapshot
+  // is the same signal the overlay diff uses — keeps the indicator in
+  // sync with what would be persisted on the next refresh.
   const locallyModifiedTaskIds = useMemo<ReadonlySet<string>>(() => {
-    if (dataSource !== 'atlas') return new Set<string>()
+    if (dataSource === 'mock') return new Set<string>()
     const snap = snapshotRef.current
     if (!snap) return new Set<string>()
     const snapById = new Map(snap.tasks.map((t) => [t.id, t]))
@@ -885,12 +1050,13 @@ export function DataProvider({ children }: { children: ReactNode }) {
     return out
   }, [tasks, dataSource])
 
-  // When Atlas mode kicks in, the team list flips from mock to API-derived.
-  // A previously-logged-in mock user (e.g. `pm-1`) will no longer match
-  // anyone in the new team, leaving the UI showing a ghost user. Log them
-  // out so they re-pick from the Atlas dropdown.
+  // When a live source kicks in, the team list flips from mock to the
+  // union of API-derived members. A previously-logged-in mock user
+  // (e.g. `pm-1`) will no longer match anyone in the new team, leaving
+  // the UI showing a ghost user. Log them out so they re-pick from the
+  // Atlas / Sheets dropdown.
   useEffect(() => {
-    if (dataSource !== 'atlas') return
+    if (dataSource === 'mock') return
     if (!currentUser) return
     // Only enforce after the team list is populated — otherwise we'd log
     // out during the brief gap while the snapshot is still loading.
@@ -1973,6 +2139,10 @@ export function DataProvider({ children }: { children: ReactNode }) {
       refreshFromAtlas,
       locallyModifiedTaskIds,
       snapshotIndex,
+      sheetsConnected,
+      sheetsDiagnostics,
+      projectDataSources,
+      refreshFromSheets,
       workspaceName,
       statusLabels,
       columnOrder,
@@ -2035,6 +2205,10 @@ export function DataProvider({ children }: { children: ReactNode }) {
       refreshFromAtlas,
       locallyModifiedTaskIds,
       snapshotIndex,
+      sheetsConnected,
+      sheetsDiagnostics,
+      projectDataSources,
+      refreshFromSheets,
       workspaceName,
       statusLabels,
       columnOrder,

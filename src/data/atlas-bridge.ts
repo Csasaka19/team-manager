@@ -65,6 +65,12 @@ export interface LoadOptions {
    *  couple of weeks of daily standups across all projects, low enough
    *  not to thrash the API on every refresh. */
   manifestLimit?: number
+  /** Atlas project slugs to drop from the result before mapping. The
+   *  store passes `['contracting-com']` here when Google Sheets is
+   *  configured, so the sheet becomes the canonical source for that
+   *  project and Atlas's copy is suppressed. Cascades through tasks,
+   *  manifests, and meetings as well. */
+  excludeProjectIds?: string[]
 }
 
 /** Fetch every needed endpoint in parallel and return a fully-mapped
@@ -84,7 +90,7 @@ export async function loadFromAtlas(
     return null
   }
 
-  const [projectsRaw, tasksRaw, feedRaw, summariesRaw] = await Promise.all([
+  const [projectsRawAll, tasksRawAll, feedRawAll, summariesRawAll] = await Promise.all([
     fetchAtlasProjects().catch(record('projects')),
     fetchAtlasTasks().catch(record('tasks')),
     fetchAtlasFeed(50).catch(record('feed')),
@@ -94,6 +100,24 @@ export async function loadFromAtlas(
         )
       : Promise.resolve(null),
   ])
+
+  // Apply the project-exclusion filter once, then thread the filtered
+  // results to every downstream mapper. Exclusion cascades: tasks for an
+  // excluded project are dropped, and same-project summaries/manifests
+  // are suppressed too so we don't render orphaned data.
+  const excluded = new Set(opts.excludeProjectIds ?? [])
+  const projectsRaw = projectsRawAll
+    ? projectsRawAll.filter((p) => !excluded.has(p.slug))
+    : projectsRawAll
+  const tasksRaw = tasksRawAll
+    ? tasksRawAll.filter((t) => !excluded.has(t.project))
+    : tasksRawAll
+  const feedRaw = feedRawAll
+    ? feedRawAll.filter((f) => !excluded.has(f.project))
+    : feedRawAll
+  const summariesRaw = summariesRawAll
+    ? summariesRawAll.filter((s) => !excluded.has(s.project))
+    : summariesRawAll
 
   // Manifests are 1:1 with summary day-files. Issue them in parallel only
   // after we know which (project, date) pairs exist — saves us blindly
