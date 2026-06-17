@@ -1,0 +1,20 @@
+{
+  "sheets": [
+    {
+      "id": "12Nneq0-oNwyqdWQ98r_o4Evp_f8aRQX7mq6sy8AGk54",
+      "name": "2026-project-management",
+      "label": "2026 Project Management",
+      "enabled": true,
+      "tabs": [
+        { "name": "Dev Projects", "slug": "dev-projects", "track": true },
+        { "name": "Dev Bugs", "slug": "dev-bugs", "track": true },
+        { "name": "Backlog", "slug": "backlog", "track": false },
+        { "name": "Delegation", "slug": "delegation", "track": false },
+        { "name": "Dashboard", "slug": "dashboard", "track": false },
+        { "name": "Bookkeeping", "slug": "bookkeeping", "track": false },
+        { "name": "Events", "slug": "events", "track": false }
+      ]
+    }
+  ],
+  "pollIntervalMinutes": 15
+}
