@@ -81,6 +81,87 @@ export interface MapTabResult {
   stats: { total: number; mapped: number; skipped: number }
 }
 
+// ── Column overrides (persisted) ─────────────────────────────────────────
+// The Settings panel exposes a per-tab override UI that lets the user
+// pin a specific column to a canonical field when auto-discovery picks
+// the wrong one. Overrides live in localStorage so they survive reloads;
+// the mapper reads them on every run and merges over the discovered map.
+
+const OVERRIDE_STORAGE_KEY = 'team-manager.sheets-column-overrides'
+
+export type TabColumnOverrides = Partial<Record<FieldKey, number | null>>
+export type AllColumnOverrides = Record<string, TabColumnOverrides>
+
+/** Read every stored override (all tabs). Returns an empty object when
+ *  storage is unavailable or empty. Pure for callers — no side effects. */
+export function loadColumnOverrides(): AllColumnOverrides {
+  if (typeof window === 'undefined') return {}
+  try {
+    const raw = window.localStorage.getItem(OVERRIDE_STORAGE_KEY)
+    if (!raw) return {}
+    const parsed = JSON.parse(raw) as unknown
+    if (!parsed || typeof parsed !== 'object') return {}
+    return parsed as AllColumnOverrides
+  } catch {
+    return {}
+  }
+}
+
+/** Lookup helper — the stored overrides for one tab (empty object if none). */
+export function getColumnOverridesForTab(tabSlug: string): TabColumnOverrides {
+  return loadColumnOverrides()[tabSlug] ?? {}
+}
+
+/** Persist a single override. Passing `index === null` clears the
+ *  override for that field (reverts to auto-discovery). */
+export function setColumnOverride(
+  tabSlug: string,
+  field: FieldKey,
+  index: number | null,
+): void {
+  if (typeof window === 'undefined') return
+  const all = loadColumnOverrides()
+  const tab = { ...(all[tabSlug] ?? {}) }
+  if (index === null) {
+    delete tab[field]
+  } else {
+    tab[field] = index
+  }
+  if (Object.keys(tab).length === 0) {
+    delete all[tabSlug]
+  } else {
+    all[tabSlug] = tab
+  }
+  try {
+    window.localStorage.setItem(OVERRIDE_STORAGE_KEY, JSON.stringify(all))
+  } catch {
+    // Quota or private-mode storage — silently degrade.
+  }
+}
+
+/** Clear every override (Settings "Reset to auto-detect"). */
+export function clearAllColumnOverrides(): void {
+  if (typeof window === 'undefined') return
+  window.localStorage.removeItem(OVERRIDE_STORAGE_KEY)
+}
+
+/** Merge stored overrides on top of an auto-discovered map. Overrides
+ *  with `null` clear the field; overrides with a valid number index
+ *  replace it. */
+export function applyOverrides(
+  discovered: ColumnMap,
+  overrides: TabColumnOverrides,
+): ColumnMap {
+  const merged: ColumnMap = { ...discovered }
+  for (const field of FIELD_ORDER) {
+    if (!(field in overrides)) continue
+    const value = overrides[field]
+    if (value === undefined) continue
+    merged[field] = value
+  }
+  return merged
+}
+
 // ── Header patterns ──────────────────────────────────────────────────────
 // Order matters: earlier patterns rank higher when two patterns of the
 // same MATCH KIND tie. Match kind beats position regardless.
@@ -407,7 +488,10 @@ export function mapSheetTabToTasks(
   }
 
   const header = tabData[0] ?? []
-  const columns = discoverColumns(header, tabSlug)
+  const discovered = discoverColumns(header, tabSlug)
+  // Settings panel can pin a column to a field; overrides win.
+  const overrides = getColumnOverridesForTab(tabSlug)
+  const columns = applyOverrides(discovered, overrides)
   const unmappedColumns = findUnmappedColumns(header, columns)
 
   const tasks: Task[] = []
