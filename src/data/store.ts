@@ -48,7 +48,10 @@ import {
   getPollIntervalMinutes,
   isGoogleSheetsConfigured,
 } from '@/services/google-sheets-config'
-import type { TabDiagnostics } from '@/services/sheets-mapper'
+import type {
+  SheetsRawRow,
+  TabDiagnostics,
+} from '@/services/sheets-mapper'
 import {
   mockActivities,
   mockMeetings,
@@ -342,6 +345,10 @@ export interface DataStore {
   /** Manually re-pull from Google Sheets. No-op when Sheets isn't
    *  configured. */
   refreshFromSheets: () => Promise<void>
+  /** Raw Google Sheets row that produced each task — used by the
+   *  TaskDetail "Raw Sheet Data" debug section. Empty in mock /
+   *  Atlas-only mode. */
+  sheetsRawRowsByTaskId: ReadonlyMap<string, SheetsRawRow>
   /** Lookup maps of the entities the last raw Atlas snapshot contained.
    *  Pages use these to ask "did this id originate from the API?" and to
    *  show what the API still says (e.g. the board's "Atlas still shows: X"
@@ -515,6 +522,13 @@ export function DataProvider({ children }: { children: ReactNode }) {
   const [projectDataSources, setProjectDataSources] = useState<
     ProjectDataSource[]
   >([])
+  const [sheetsRawRowsByTaskId, setSheetsRawRowsByTaskId] = useState<
+    ReadonlyMap<string, SheetsRawRow>
+  >(() => new Map())
+  /** Tracks whether the first Sheets snapshot has emitted its initial-
+   *  sync activity yet. Prevents the 15-min refresh from spamming the
+   *  activity feed. */
+  const sheetsInitialSyncedRef = useRef<boolean>(false)
 
   // Raw per-source snapshots — refs because the refresh loop reads the
   // latest values without needing to be a dependency of a useCallback.
@@ -994,20 +1008,40 @@ export function DataProvider({ children }: { children: ReactNode }) {
     }
     setIsRefreshing(true)
     try {
-      const { snapshot, diagnostics } = await loadFromSheets()
+      const { snapshot, diagnostics, rawRowsByTaskId } = await loadFromSheets()
       sheetsRawRef.current = snapshot
       setSheetsConnected(true)
       setSheetsDiagnostics(diagnostics)
+      setSheetsRawRowsByTaskId(rawRowsByTaskId)
       // If Atlas isn't configured, "live" data is sheets-only — surface
       // that on dataSource so the badge shows the right label.
       if (!isAtlasConfigured()) {
         setDataSource('google-sheets')
       }
       applyCombinedSnapshot({ meetingsMode: 'preserve-prior' })
+      // First successful sheets load → one summary activity. Subsequent
+      // refreshes don't emit (would be noisy at the 15-min cadence).
+      if (!sheetsInitialSyncedRef.current && snapshot.tasks.length > 0) {
+        sheetsInitialSyncedRef.current = true
+        const entry: Activity = {
+          id: `sheets-sync-${snapshot.loadedAt}`,
+          taskId: null,
+          actorId: 'sheets-import',
+          type: 'creation',
+          content: `Synced ${snapshot.tasks.length} task${
+            snapshot.tasks.length === 1 ? '' : 's'
+          } from Google Sheets for Contracting.com`,
+          mentions: [],
+          createdAt: snapshot.loadedAt,
+          projectId: SHEETS_PROJECT_ID,
+        }
+        setActivities((prev) => [entry, ...prev])
+      }
     } catch (err) {
       sheetsRawRef.current = null
       setSheetsConnected(false)
       setSheetsDiagnostics(null)
+      setSheetsRawRowsByTaskId(new Map())
       setSyncError(err instanceof Error ? err.message : String(err))
     } finally {
       setIsRefreshing(false)
@@ -2143,6 +2177,7 @@ export function DataProvider({ children }: { children: ReactNode }) {
       sheetsDiagnostics,
       projectDataSources,
       refreshFromSheets,
+      sheetsRawRowsByTaskId,
       workspaceName,
       statusLabels,
       columnOrder,
@@ -2209,6 +2244,7 @@ export function DataProvider({ children }: { children: ReactNode }) {
       sheetsDiagnostics,
       projectDataSources,
       refreshFromSheets,
+      sheetsRawRowsByTaskId,
       workspaceName,
       statusLabels,
       columnOrder,

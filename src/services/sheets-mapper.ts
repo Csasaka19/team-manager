@@ -607,6 +607,19 @@ export interface CombineResult {
   tasks: Task[]
   members: TeamMember[]
   diagnostics: TabDiagnostics[]
+  /** Per-task raw row data so the TaskDetail debug panel can show the
+   *  original sheet values that produced the mapped task. Keyed by the
+   *  task id the mapper emitted. */
+  rawRowsByTaskId: Map<string, SheetsRawRow>
+}
+
+export interface SheetsRawRow {
+  tabSlug: string
+  rowIndex: number
+  /** Header row from the same tab. Same length as `values`. */
+  headers: string[]
+  /** Cell values in the same order as `headers`. */
+  values: string[]
 }
 
 /**
@@ -625,6 +638,7 @@ export function combineTrackedTabs(
   const diagnostics: TabDiagnostics[] = []
   const seenIds = new Set<string>()
   const merged: Task[] = []
+  const rawRowsByTaskId = new Map<string, SheetsRawRow>()
 
   for (const [tabSlug, tabData] of tabDataMap.entries()) {
     const header = (tabData[0] ?? []).map((h) => String(h ?? ''))
@@ -642,6 +656,22 @@ export function combineTrackedTabs(
       merged.push(t)
     }
 
+    // Pair each mapped task back to the original row (rowIndex from the
+    // task id's `row-N` suffix — set by the mapper itself).
+    for (const t of augmented) {
+      const m = /-row-(\d+)$/.exec(t.id)
+      if (!m) continue
+      const rowIndex = Number(m[1])
+      const row = tabData[rowIndex]
+      if (!Array.isArray(row)) continue
+      rawRowsByTaskId.set(t.id, {
+        tabSlug,
+        rowIndex,
+        headers: header,
+        values: row.map((v) => (v == null ? '' : String(v))),
+      })
+    }
+
     const columns = discoverColumns(header, `${tabSlug} (diagnostics)`)
     diagnostics.push({
       tabName: tabSlug,
@@ -657,7 +687,7 @@ export function combineTrackedTabs(
   }
 
   const members = extractTeamMembersFromSheets(merged, options)
-  return { tasks: merged, members, diagnostics }
+  return { tasks: merged, members, diagnostics, rawRowsByTaskId }
 }
 
 // ── Helpers ──────────────────────────────────────────────────────────────
@@ -687,9 +717,21 @@ function humaniseSlug(slug: string): string {
 }
 
 /**
- * Normalise an assignee cell into a stable lower-case slug. Multi-owner
- * cells ("Alice & Bob", "Alice, Bob") take the FIRST name as the
- * canonical assignee, matching the single-valued `Task.assigneeId` shape.
+ * Normalise an assignee cell into a canonical team-member slug.
+ *
+ * Atlas slugs are short and clean ("chris", "kosir", "rebeccah"), but
+ * sheets often hold richer forms ("Chris M", "Brian Kosir", "Chris &
+ * Clive"). The mapper walks the cell in priority order:
+ *   1. Multi-owner cells take the FIRST name only — Task.assigneeId is
+ *      single-valued.
+ *   2. Direct slug match.
+ *   3. Slugified first token matches a KNOWN_MEMBERS key.
+ *   4. The first token equals one of KNOWN_MEMBERS' display names
+ *      (case-insensitive).
+ *   5. The cell starts with a known slug (handles "Chris M.").
+ *   6. The cell contains a known slug as a whole word.
+ *   7. Fallback: slugify the whole thing — produces a synthetic slug
+ *      for unknown people so the team list at least picks them up.
  */
 function normaliseAssignee(raw: string): string | null {
   if (!raw) return null
@@ -698,7 +740,44 @@ function normaliseAssignee(raw: string): string | null {
     .map((s) => s.trim())
     .filter(Boolean)[0]
   if (!first) return null
-  return slugify(first)
+
+  const firstLower = first.toLowerCase()
+  const directSlug = slugify(first)
+
+  // Step 2: direct slug match.
+  if (KNOWN_MEMBERS[directSlug]) return directSlug
+
+  // Step 3 + 4: first whitespace-delimited token.
+  const firstWord = firstLower.split(/\s+/)[0] ?? ''
+  if (firstWord) {
+    const firstWordSlug = slugify(firstWord)
+    if (KNOWN_MEMBERS[firstWordSlug]) return firstWordSlug
+    for (const [slug, info] of Object.entries(KNOWN_MEMBERS)) {
+      if (info.name.toLowerCase() === firstLower) return slug
+      if (info.name.toLowerCase().startsWith(firstLower + ' ')) return slug
+    }
+  }
+
+  // Step 5: cell starts with a known slug ("chris m.", "brian k").
+  for (const slug of Object.keys(KNOWN_MEMBERS)) {
+    if (firstLower === slug) return slug
+    if (firstLower.startsWith(slug + ' ') || firstLower.startsWith(slug + '.')) {
+      return slug
+    }
+  }
+
+  // Step 6: known slug appears as a whole word anywhere in the cell.
+  for (const slug of Object.keys(KNOWN_MEMBERS)) {
+    const re = new RegExp(`\\b${escapeRegExp(slug)}\\b`, 'i')
+    if (re.test(first)) return slug
+  }
+
+  // Step 7: synthetic slug for unknown people.
+  return directSlug || null
+}
+
+function escapeRegExp(s: string): string {
+  return s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
 }
 
 function slugify(input: string): string {

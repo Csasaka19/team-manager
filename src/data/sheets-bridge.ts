@@ -18,6 +18,7 @@ import {
 import {
   combineTrackedTabs,
   createContractingProject,
+  type SheetsRawRow,
   type TabDiagnostics,
 } from '@/services/sheets-mapper'
 import type { AtlasSnapshot } from './atlas-bridge'
@@ -32,6 +33,10 @@ export interface LoadSheetsResult {
    *  unmapped columns, row counts, sample task. The Settings panel
    *  renders these so the developer can verify the mapping. */
   diagnostics: TabDiagnostics[]
+  /** Sheet row that produced each task, keyed by task id. The
+   *  TaskDetail page's "Raw Sheet Data" debug section reads from
+   *  this. */
+  rawRowsByTaskId: Map<string, SheetsRawRow>
 }
 
 export interface LoadSheetsOptions {
@@ -58,11 +63,19 @@ export async function loadFromSheets(
   opts: LoadSheetsOptions = {},
 ): Promise<LoadSheetsResult> {
   if (!isGoogleSheetsConfigured()) {
-    return { snapshot: emptySnapshot(opts.now), diagnostics: [] }
+    return {
+      snapshot: emptySnapshot(opts.now),
+      diagnostics: [],
+      rawRowsByTaskId: new Map(),
+    }
   }
   const spreadsheetId = opts.spreadsheetId || getDefaultSpreadsheetId()
   if (!spreadsheetId) {
-    return { snapshot: emptySnapshot(opts.now), diagnostics: [] }
+    return {
+      snapshot: emptySnapshot(opts.now),
+      diagnostics: [],
+      rawRowsByTaskId: new Map(),
+    }
   }
   const now = opts.now ?? new Date().toISOString()
 
@@ -78,7 +91,11 @@ export async function loadFromSheets(
       source: 'sheets',
       message: err instanceof Error ? err.message : String(err),
     })
-    return { snapshot: emptySnapshot(now), diagnostics: [] }
+    return {
+      snapshot: emptySnapshot(now),
+      diagnostics: [],
+      rawRowsByTaskId: new Map(),
+    }
   }
 
   const combined = combineTrackedTabs(tabDataMap, SHEETS_PROJECT_ID, { now })
@@ -95,6 +112,7 @@ export async function loadFromSheets(
       errors,
     },
     diagnostics: combined.diagnostics,
+    rawRowsByTaskId: combined.rawRowsByTaskId,
   }
 }
 

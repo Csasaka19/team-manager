@@ -30,6 +30,7 @@ export default function ProjectsPage() {
     deleteProject,
     dataSource,
     snapshotIndex,
+    projectDataSources,
   } = useData()
   const [searchParams, setSearchParams] = useSearchParams()
 
@@ -172,6 +173,11 @@ export default function ProjectsPage() {
               onSettingsClick={() => setEditing(p)}
               isAtlasManaged={
                 dataSource === 'atlas' && snapshotIndex.projectsById.has(p.id)
+              }
+              isSheetsManaged={
+                projectDataSources.some(
+                  (s) => s.projectId === p.id && s.source === 'google-sheets',
+                )
               }
             />
           ))}

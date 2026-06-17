@@ -248,8 +248,14 @@ function extractMetadata(body: unknown): { title: string; sheets: string[] } {
 /**
  * Run `fn`; if it throws an `auth` (HTTP 401) error, clear the cached
  * access token, mint a fresh one, and retry once. Auth errors from the
- * second attempt propagate to the caller. Any other error class is
- * passed through immediately.
+ * second attempt propagate to the caller.
+ *
+ * Also handles 429 rate limiting: Sheets API allows 60 req/min/user.
+ * With a 15-min poll over 2 tabs we're nowhere near that, but a manual
+ * "Refresh now" while the poller is also firing can spike briefly.
+ * One retry after a short delay covers the spike without spamming.
+ *
+ * Any other error class is passed through immediately.
  */
 async function runWithAuthRetry<T>(fn: () => Promise<T>): Promise<T> {
   try {
@@ -270,6 +276,13 @@ async function runWithAuthRetry<T>(fn: () => Promise<T>): Promise<T> {
         }
         throw err2
       }
+    }
+    if (err instanceof GoogleSheetsApiError && err.code === 'rate_limited') {
+      // 5s backoff is long enough to clear most quota spikes but short
+      // enough that the user doesn't think the app is hung. One retry —
+      // if it still fails, the caller sees the 429 and can decide.
+      await new Promise((resolve) => setTimeout(resolve, 5000))
+      return fn()
     }
     if (err instanceof GoogleSheetsAuthError) {
       // Surface auth-layer failures with the api error type so callers

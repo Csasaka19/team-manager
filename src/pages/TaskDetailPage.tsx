@@ -1,6 +1,6 @@
 import { useMemo, useState } from 'react'
 import { Link, useNavigate, useParams } from 'react-router-dom'
-import { ArrowLeft, FileQuestion, Radio } from 'lucide-react'
+import { ArrowLeft, ChevronDown, ChevronRight, FileQuestion, Radio, Table2 } from 'lucide-react'
 import { toast } from 'sonner'
 import { ActivityCommentFeed } from '@/components/task-detail/ActivityCommentFeed'
 import { AtlasMarkdown } from '@/components/atlas/AtlasMarkdown'
@@ -44,7 +44,8 @@ export default function TaskDetailPage() {
     teamMembers,
     tags,
     activities,
-    dataSource,
+    sheetsRawRowsByTaskId,
+    projectDataSources,
     updateTask,
     deleteTask,
     createSubtask,
@@ -87,11 +88,20 @@ export default function TaskDetailPage() {
   // originated from the API. Status and subtasks stay editable — those
   // are the team's working state, captured in the local overlay.
   const isAtlasManaged = useIsReadOnly('task', task.id)
-  const canEditTitle = canEditTask && !isAtlasManaged
-  const canChangeAssignee = canPMEdit && !isAtlasManaged
-  const canChangePriority = canPMEdit && !isAtlasManaged
-  const canChangeDueDate = canEditTask && !isAtlasManaged
-  const canDeleteTask = canPMEdit && !isAtlasManaged
+  // Sheets-sourced tasks get the same field-level lockdown as Atlas
+  // (the source is read-only too), but with a different source badge.
+  const sheetsRawRow = sheetsRawRowsByTaskId.get(task.id)
+  const isSheetsManaged =
+    sheetsRawRow !== undefined ||
+    projectDataSources.some(
+      (s) => s.projectId === task.projectId && s.source === 'google-sheets',
+    )
+  const isReadOnlySource = isAtlasManaged || isSheetsManaged
+  const canEditTitle = canEditTask && !isReadOnlySource
+  const canChangeAssignee = canPMEdit && !isReadOnlySource
+  const canChangePriority = canPMEdit && !isReadOnlySource
+  const canChangeDueDate = canEditTask && !isReadOnlySource
+  const canDeleteTask = canPMEdit && !isReadOnlySource
 
   const handleDelete = async () => {
     setConfirmOpen(false)
@@ -163,7 +173,7 @@ export default function TaskDetailPage() {
         <MeetingSourceBanner sourceMeetingId={task.sourceMeetingId} />
       )}
 
-      {dataSource === 'atlas' ? (
+      {isReadOnlySource ? (
         <section
           aria-labelledby="task-description-heading"
           className="space-y-2 rounded-lg border border-[var(--border-subtle)] bg-[var(--bg-surface)] p-4 md:p-5"
@@ -175,19 +185,31 @@ export default function TaskDetailPage() {
             >
               Description
             </h2>
-            <span
-              className="inline-flex items-center gap-1 rounded-full bg-[var(--bg-elevated)] px-2 py-0.5 text-[10px] font-medium uppercase tracking-[0.5px] text-[var(--text-secondary)]"
-              title="This task was fetched from the Atlas vault. The body is read-only because the Atlas API doesn't accept writes."
-            >
-              <Radio className="h-3 w-3" aria-hidden="true" />
-              Source: Atlas
-            </span>
+            {isSheetsManaged ? (
+              <span
+                className="inline-flex items-center gap-1 rounded-full bg-[color-mix(in_srgb,var(--status-done)_15%,transparent)] px-2 py-0.5 text-[10px] font-medium uppercase tracking-[0.5px] text-[var(--status-done)]"
+                title="This task is synced from the Contracting.com Google Sheet. Status edits stay local; everything else is read-only."
+              >
+                <Table2 className="h-3 w-3" aria-hidden="true" />
+                From Sheets
+              </span>
+            ) : (
+              <span
+                className="inline-flex items-center gap-1 rounded-full bg-[var(--bg-elevated)] px-2 py-0.5 text-[10px] font-medium uppercase tracking-[0.5px] text-[var(--text-secondary)]"
+                title="This task was fetched from the Atlas vault. The body is read-only because the Atlas API doesn't accept writes."
+              >
+                <Radio className="h-3 w-3" aria-hidden="true" />
+                Source: Atlas
+              </span>
+            )}
           </div>
           {task.description ? (
             <AtlasMarkdown content={task.description} />
           ) : (
             <p className="text-sm text-[var(--text-muted)]">
-              No description available from Atlas.
+              {isSheetsManaged
+                ? 'No description in spreadsheet.'
+                : 'No description available from Atlas.'}
             </p>
           )}
         </section>
@@ -269,6 +291,8 @@ export default function TaskDetailPage() {
         />
       </section>
 
+      {sheetsRawRow && <RawSheetDataPanel row={sheetsRawRow} />}
+
       <ConfirmModal
         open={confirmOpen}
         title="Delete task?"
@@ -285,6 +309,80 @@ export default function TaskDetailPage() {
         onCancel={() => setConfirmOpen(false)}
       />
     </div>
+  )
+}
+
+function RawSheetDataPanel({
+  row,
+}: {
+  row: import('@/services/sheets-mapper').SheetsRawRow
+}) {
+  const [open, setOpen] = useState(false)
+  // Pair headers ↔ values; pad/trim so a header without a value still
+  // renders (Sheets sometimes returns short rows).
+  const pairs = row.headers.map((header, i) => ({
+    header: header || `Column ${i + 1}`,
+    value: row.values[i] ?? '',
+  }))
+
+  return (
+    <section
+      aria-labelledby="raw-sheet-heading"
+      className="rounded-lg border border-[var(--border-subtle)] bg-[var(--bg-surface)]"
+    >
+      <button
+        type="button"
+        onClick={() => setOpen((p) => !p)}
+        className="flex w-full items-center justify-between gap-3 px-4 py-3 text-left transition-colors hover:bg-[var(--bg-elevated)]/40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent-focus)]"
+        aria-expanded={open}
+      >
+        <div>
+          <h2
+            id="raw-sheet-heading"
+            className="text-sm font-medium text-[var(--text-primary)]"
+          >
+            Raw Sheet Data
+          </h2>
+          <p className="text-xs text-[var(--text-secondary)]">
+            Tab <code className="font-mono">{row.tabSlug}</code> · row{' '}
+            <code className="font-mono">{row.rowIndex}</code> · {pairs.length} columns
+          </p>
+        </div>
+        {open ? (
+          <ChevronDown
+            className="h-4 w-4 text-[var(--text-secondary)]"
+            aria-hidden="true"
+          />
+        ) : (
+          <ChevronRight
+            className="h-4 w-4 text-[var(--text-secondary)]"
+            aria-hidden="true"
+          />
+        )}
+      </button>
+      {open && (
+        <dl className="grid grid-cols-1 gap-x-6 gap-y-1.5 border-t border-[var(--border-subtle)] p-4 text-sm md:grid-cols-2 md:p-5">
+          {pairs.map((p, i) => (
+            <div
+              key={`${p.header}-${i}`}
+              className="flex items-baseline justify-between gap-3"
+            >
+              <dt className="font-mono text-[11px] uppercase tracking-[0.5px] text-[var(--text-secondary)]">
+                {p.header}
+              </dt>
+              <dd
+                className={p.value
+                  ? 'truncate text-right text-[var(--text-primary)]'
+                  : 'text-right text-[11px] italic text-[var(--text-muted)]'}
+                title={p.value}
+              >
+                {p.value || '(empty)'}
+              </dd>
+            </div>
+          ))}
+        </dl>
+      )}
+    </section>
   )
 }
 

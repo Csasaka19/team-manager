@@ -1,3 +1,4 @@
+import { useMemo } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useData } from '@/data/store'
 import { cn } from '@/lib/utils'
@@ -16,9 +17,15 @@ export function DataSourceBadge() {
     lastSynced,
     projects,
     tasks,
+    sheetsConnected,
+    projectDataSources,
   } = useData()
 
-  const tone = syncError ? 'error' : dataSource === 'atlas' ? 'live' : 'mock'
+  const atlasActive = dataSource === 'atlas'
+  const sheetsActive = sheetsConnected
+  const live = atlasActive || sheetsActive || dataSource === 'google-sheets'
+
+  const tone = syncError ? 'error' : live ? 'live' : 'mock'
 
   const label =
     tone === 'live' ? 'Live' : tone === 'error' ? 'Sync error' : 'Demo'
@@ -31,12 +38,50 @@ export function DataSourceBadge() {
     tone === 'mock' && 'bg-[var(--text-muted)]',
   )
 
-  const tooltip =
-    tone === 'live'
-      ? `Connected to Atlas · Last synced ${relativeAgo(lastSynced)} · ${projects.length} project${projects.length === 1 ? '' : 's'}, ${tasks.length} task${tasks.length === 1 ? '' : 's'}`
-      : tone === 'error'
-        ? `Sync error: ${syncError ?? 'unknown'} — click to open Settings`
-        : 'Using demo data. Configure Atlas API in Settings to connect live data.'
+  // Sheets-sourced task count (for the per-source breakdown in the tip).
+  const sheetsTaskCount = useMemo(() => {
+    const sheetProjectIds = new Set(
+      projectDataSources
+        .filter((p) => p.source === 'google-sheets')
+        .map((p) => p.projectId),
+    )
+    if (sheetProjectIds.size === 0) return 0
+    return tasks.filter((t) => sheetProjectIds.has(t.projectId)).length
+  }, [tasks, projectDataSources])
+
+  const atlasProjectCount = useMemo(() => {
+    const atlasProjectIds = new Set(
+      projectDataSources
+        .filter((p) => p.source === 'atlas')
+        .map((p) => p.projectId),
+    )
+    return atlasProjectIds.size
+  }, [projectDataSources])
+
+  const tooltip = (() => {
+    if (tone === 'error') {
+      return `Sync error: ${syncError ?? 'unknown'} — click to open Settings`
+    }
+    if (tone === 'mock') {
+      return 'Using demo data. Configure Atlas or Google Sheets in Settings to connect live data.'
+    }
+    // Live: combine whichever sources are active into a single line.
+    const parts: string[] = []
+    if (atlasActive) {
+      parts.push(
+        `Atlas: ${atlasProjectCount} project${atlasProjectCount === 1 ? '' : 's'}`,
+      )
+    }
+    if (sheetsActive) {
+      parts.push(
+        `Sheets: Contracting.com (${sheetsTaskCount} task${sheetsTaskCount === 1 ? '' : 's'})`,
+      )
+    }
+    if (parts.length === 0) {
+      parts.push(`${projects.length} project${projects.length === 1 ? '' : 's'}, ${tasks.length} task${tasks.length === 1 ? '' : 's'}`)
+    }
+    return `${parts.join(' · ')} · Last synced ${relativeAgo(lastSynced)}`
+  })()
 
   const interactive = tone === 'error'
 

@@ -1,5 +1,5 @@
 import { Link } from 'react-router-dom'
-import { Radio, Settings } from 'lucide-react'
+import { Radio, Settings, Table2 } from 'lucide-react'
 import { AvatarStack } from '@/components/shared/AvatarStack'
 import { cn } from '@/lib/utils'
 import { isOverdue, relativeTime } from '@/lib/date-utils'
@@ -15,6 +15,11 @@ interface ProjectCardProps {
    *  settings/delete/archive affordances and renders a subtle "Atlas"
    *  badge. */
   isAtlasManaged?: boolean
+  /** True when this project's tasks are synced from Google Sheets.
+   *  Renders a small spreadsheet icon and the "Sheets" pill; the
+   *  settings modal stays openable (PMs can still rename it), but
+   *  delete/archive are hidden. */
+  isSheetsManaged?: boolean
 }
 
 export function ProjectCard({
@@ -24,6 +29,7 @@ export function ProjectCard({
   canEdit,
   onSettingsClick,
   isAtlasManaged = false,
+  isSheetsManaged = false,
 }: ProjectCardProps) {
   const open = tasks.filter((t) => t.status !== 'done').length
   const overdue = tasks.filter(
@@ -67,6 +73,15 @@ export function ProjectCard({
             >
               <Radio className="h-3 w-3" aria-hidden="true" />
               Atlas
+            </span>
+          )}
+          {isSheetsManaged && (
+            <span
+              className="pointer-events-auto inline-flex shrink-0 items-center gap-1 rounded-full bg-[color-mix(in_srgb,var(--status-done)_15%,transparent)] px-2 py-0.5 text-[10px] font-medium uppercase tracking-[0.5px] text-[var(--status-done)]"
+              title="Data from Google Sheets — 2026 Project Management spreadsheet"
+            >
+              <Table2 className="h-3 w-3" aria-hidden="true" />
+              Sheets
             </span>
           )}
         </div>
