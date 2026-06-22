@@ -1,6 +1,10 @@
-import { useMemo } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useData } from '@/data/store'
+import {
+  getRefreshTelemetry,
+  hasRefreshTokenOverride,
+} from '@/services/google-sheets-auth'
 import { cn } from '@/lib/utils'
 
 /**
@@ -25,16 +29,54 @@ export function DataSourceBadge() {
   const sheetsActive = sheetsConnected
   const live = atlasActive || sheetsActive || dataSource === 'google-sheets'
 
-  const tone = syncError ? 'error' : live ? 'live' : 'mock'
+  // Sheets-side auth-error and token-rotation are not part of the
+  // store's reactive state — read them via a tiny polling effect so the
+  // badge picks up changes within ~3s. Cheap; only ticks when mounted.
+  const [authTick, setAuthTick] = useState(0)
+  useEffect(() => {
+    const id = window.setInterval(() => setAuthTick((n) => n + 1), 3000)
+    return () => window.clearInterval(id)
+  }, [])
+  const sheetsAuthError = useMemo(() => {
+    void authTick
+    return getRefreshTelemetry().lastOutcome === 'invalid_grant'
+  }, [authTick])
+  const sheetsTokenRotated = useMemo(() => {
+    void authTick
+    return hasRefreshTokenOverride()
+  }, [authTick])
+
+  // Priority: sheets-auth error > general sync error > token-rotated >
+  // live > mock. Auth error is the most actionable failure mode.
+  const tone: 'sheets_auth' | 'error' | 'rotated' | 'live' | 'mock' =
+    sheetsAuthError
+      ? 'sheets_auth'
+      : syncError
+        ? 'error'
+        : sheetsTokenRotated
+          ? 'rotated'
+          : live
+            ? 'live'
+            : 'mock'
 
   const label =
-    tone === 'live' ? 'Live' : tone === 'error' ? 'Sync error' : 'Demo'
+    tone === 'sheets_auth'
+      ? 'Sheets: Auth Error'
+      : tone === 'rotated'
+        ? 'Sheets: Token Updated'
+        : tone === 'error'
+          ? 'Sync error'
+          : tone === 'live'
+            ? 'Live'
+            : 'Demo'
 
   const dotClass = cn(
     'inline-block h-2 w-2 shrink-0 rounded-full',
-    isRefreshing && 'animate-pulse',
+    (isRefreshing || tone === 'rotated') && 'animate-pulse',
     tone === 'live' && 'bg-[var(--status-done)]',
     tone === 'error' && 'bg-[var(--priority-medium)]',
+    tone === 'sheets_auth' && 'bg-[var(--priority-medium)]',
+    tone === 'rotated' && 'bg-[#EAB308]',
     tone === 'mock' && 'bg-[var(--text-muted)]',
   )
 
@@ -59,6 +101,12 @@ export function DataSourceBadge() {
   }, [projectDataSources])
 
   const tooltip = (() => {
+    if (tone === 'sheets_auth') {
+      return 'Google Sheets authentication failed. An admin needs to re-authorize.'
+    }
+    if (tone === 'rotated') {
+      return 'Google issued a new refresh token. Update .env to persist this change.'
+    }
     if (tone === 'error') {
       return `Sync error: ${syncError ?? 'unknown'} — click to open Settings`
     }
@@ -83,7 +131,10 @@ export function DataSourceBadge() {
     return `${parts.join(' · ')} · Last synced ${relativeAgo(lastSynced)}`
   })()
 
-  const interactive = tone === 'error'
+  // Anything actionable routes to Settings; the rotated state is also
+  // actionable (operator needs to copy the new token).
+  const interactive =
+    tone === 'error' || tone === 'sheets_auth' || tone === 'rotated'
 
   return (
     <button

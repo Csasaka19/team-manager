@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import {
   AlertTriangle,
   CheckCircle2,
@@ -20,6 +20,11 @@ import {
   GoogleSheetsApiError,
 } from '@/services/google-sheets-api'
 import {
+  clearRefreshTokenOverride,
+  getRefreshTelemetry,
+  getTokenExpiry,
+  hasRefreshTokenOverride,
+  readRefreshTokenOverride,
   refreshAccessToken,
   GoogleSheetsAuthError,
 } from '@/services/google-sheets-auth'
@@ -183,6 +188,7 @@ export function SheetsSection() {
 
       <div className="mt-5 space-y-4 rounded-lg border border-[var(--border-subtle)] bg-[var(--bg-surface)] p-4 md:p-5">
         <CredentialReadout env={envDisplay} />
+        <TokenStatus />
         <TrackedTabsList />
 
         <div className="flex flex-wrap items-center gap-2 border-t border-[var(--border-subtle)] pt-3">
@@ -323,6 +329,201 @@ function readEnvDisplay(): EnvDisplay {
 function readEnv(name: string): string {
   const raw = import.meta.env[name]
   return typeof raw === 'string' ? raw.trim() : ''
+}
+
+// ── Token status ────────────────────────────────────────────────────────
+
+function TokenStatus() {
+  // Auth telemetry isn't reactive — poll every 3s while mounted. Cheap.
+  const [tick, setTick] = useState(0)
+  useEffect(() => {
+    const id = window.setInterval(() => setTick((n) => n + 1), 3000)
+    return () => window.clearInterval(id)
+  }, [])
+  void tick
+
+  const telemetry = getRefreshTelemetry()
+  const expiry = getTokenExpiry()
+  const hasOverride = hasRefreshTokenOverride()
+
+  const refreshStatus: 'active' | 'invalid' | 'overridden' | 'idle' = (() => {
+    if (hasOverride) return 'overridden'
+    if (telemetry.lastOutcome === 'invalid_grant') return 'invalid'
+    if (telemetry.lastOutcome === 'success') return 'active'
+    return 'idle'
+  })()
+
+  const accessMinutesLeft = expiry
+    ? Math.max(0, Math.round((expiry.getTime() - Date.now()) / 60_000))
+    : null
+
+  const handleCopyToken = async () => {
+    const token = readRefreshTokenOverride()
+    if (!token) {
+      toast.error('No override token to copy.')
+      return
+    }
+    try {
+      await navigator.clipboard.writeText(token)
+      toast.success('New refresh token copied to clipboard.')
+    } catch {
+      toast.error('Clipboard unavailable — open devtools and read it manually.')
+    }
+  }
+
+  const handleClearOverride = () => {
+    clearRefreshTokenOverride()
+    toast.success(
+      'Override cleared. The next refresh will use the env-var token.',
+    )
+    setTick((n) => n + 1)
+  }
+
+  return (
+    <div className="border-t border-[var(--border-subtle)] pt-4">
+      <h3 className="text-[11px] font-semibold uppercase tracking-[0.5px] text-[var(--text-secondary)]">
+        Token status
+      </h3>
+      <dl className="mt-2 space-y-2 text-sm">
+        <RefreshTokenRow status={refreshStatus} telemetry={telemetry} />
+        <Row
+          label="Access token"
+          value={
+            accessMinutesLeft === null ? (
+              <span className="text-[var(--text-muted)]">
+                Expired — will refresh on next request
+              </span>
+            ) : (
+              <span className="text-[var(--text-primary)]">
+                Valid for {accessMinutesLeft} minute
+                {accessMinutesLeft === 1 ? '' : 's'}
+              </span>
+            )
+          }
+        />
+        <Row
+          label="Last token refresh"
+          value={
+            telemetry.lastSuccessAt ? (
+              <span className="text-[var(--text-primary)] tabular-nums">
+                {telemetry.lastSuccessAt.toLocaleString(undefined, {
+                  month: 'short',
+                  day: 'numeric',
+                  hour: '2-digit',
+                  minute: '2-digit',
+                  second: '2-digit',
+                })}
+              </span>
+            ) : (
+              <span className="text-[var(--text-muted)]">never</span>
+            )
+          }
+        />
+      </dl>
+
+      {refreshStatus === 'invalid' && (
+        <div className="mt-3 rounded-md border border-[color-mix(in_srgb,var(--priority-critical)_25%,var(--border-subtle))] bg-[color-mix(in_srgb,var(--priority-critical)_8%,transparent)] p-3 text-xs">
+          <p className="font-medium text-[var(--text-primary)]">
+            Refresh token revoked
+          </p>
+          <p className="mt-1 text-[var(--text-secondary)]">
+            Run{' '}
+            <code className="font-mono">pnpm setup-google-auth</code> with the
+            Firebrake account to generate a new token, then update{' '}
+            <code className="font-mono">.env</code> and redeploy.
+          </p>
+        </div>
+      )}
+
+      {refreshStatus === 'overridden' && (
+        <div className="mt-3 rounded-md border border-[color-mix(in_srgb,var(--priority-medium)_25%,var(--border-subtle))] bg-[color-mix(in_srgb,var(--priority-medium)_8%,transparent)] p-3 text-xs">
+          <p className="font-medium text-[var(--text-primary)]">
+            Google issued a new refresh token
+          </p>
+          <p className="mt-1 text-[var(--text-secondary)]">
+            We stored it as a browser override so the app keeps working.
+            Update your <code className="font-mono">.env</code> and Railway
+            vars with the new value, then clear this override.
+          </p>
+          <div className="mt-2 flex flex-wrap items-center gap-2">
+            <button
+              type="button"
+              onClick={handleCopyToken}
+              className="inline-flex h-7 items-center rounded-md border border-[var(--border-default)] bg-transparent px-2.5 text-[11px] font-medium text-[var(--text-primary)] transition-colors hover:bg-[var(--bg-elevated)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent-focus)]"
+            >
+              Copy new token
+            </button>
+            <button
+              type="button"
+              onClick={handleClearOverride}
+              className="inline-flex h-7 items-center rounded-md border border-[var(--border-default)] bg-transparent px-2.5 text-[11px] font-medium text-[var(--text-primary)] transition-colors hover:bg-[var(--bg-elevated)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent-focus)]"
+            >
+              Clear override
+            </button>
+          </div>
+        </div>
+      )}
+    </div>
+  )
+}
+
+function RefreshTokenRow({
+  status,
+  telemetry,
+}: {
+  status: 'active' | 'invalid' | 'overridden' | 'idle'
+  telemetry: { lastError: string | null }
+}) {
+  if (status === 'active') {
+    return (
+      <Row
+        label="Refresh token"
+        value={
+          <span className="inline-flex items-center gap-1 text-[var(--status-done)]">
+            <CheckCircle2 className="h-3.5 w-3.5" aria-hidden="true" />
+            Active ✓
+          </span>
+        }
+      />
+    )
+  }
+  if (status === 'invalid') {
+    return (
+      <Row
+        label="Refresh token"
+        value={
+          <span
+            className="inline-flex items-center gap-1 text-[var(--priority-critical)]"
+            title={telemetry.lastError ?? undefined}
+          >
+            <XCircle className="h-3.5 w-3.5" aria-hidden="true" />
+            Invalid ✗
+          </span>
+        }
+      />
+    )
+  }
+  if (status === 'overridden') {
+    return (
+      <Row
+        label="Refresh token"
+        value={
+          <span className="inline-flex items-center gap-1 text-[var(--priority-medium)]">
+            <RefreshCw className="h-3.5 w-3.5" aria-hidden="true" />
+            Overridden ⟳
+          </span>
+        }
+      />
+    )
+  }
+  return (
+    <Row
+      label="Refresh token"
+      value={
+        <span className="text-[var(--text-muted)]">Awaiting first refresh</span>
+      }
+    />
+  )
 }
 
 function CredentialReadout({ env }: { env: EnvDisplay }) {

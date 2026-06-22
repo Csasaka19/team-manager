@@ -16,6 +16,7 @@ import {
   GoogleSheetsAuthError,
 } from './google-sheets-auth'
 import { getTrackedTabs } from './google-sheets-config'
+import { sheetsRateLimiter } from './rate-limiter'
 
 const SHEETS_API_BASE = 'https://sheets.googleapis.com/v4/spreadsheets'
 
@@ -141,6 +142,8 @@ function buildValuesUrl(spreadsheetId: string, tabName: string): string {
 }
 
 async function safeFetch(url: string, token: string): Promise<Response> {
+  // Stay well under Google's 60 req/min/user ceiling.
+  await sheetsRateLimiter.waitForSlot()
   try {
     return await fetch(url, {
       headers: {

@@ -1,5 +1,6 @@
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { Link } from 'react-router-dom'
+import { toast } from 'sonner'
 import {
   AlertTriangle,
   Calendar,
@@ -25,6 +26,10 @@ import { useAuth } from '@/data/auth'
 import { useData } from '@/data/store'
 import { useDocumentTitle } from '@/hooks/useDocumentTitle'
 import { STATUS_LABELS, type Task } from '@/data/types'
+
+/** sessionStorage key that gates the one-time Google Sheets setup toast
+ *  on Dashboard load. Cleared when the user opens a new browser tab. */
+const SHEETS_SETUP_TOAST_KEY = 'team-manager.sheets-setup-toast-shown'
 import {
   daysBetween,
   endOfWeek,
@@ -59,7 +64,48 @@ export default function DashboardPage() {
     syncError,
     refreshFromAtlas,
     dataSource,
+    sheetsConnected,
   } = useData()
+
+  // One-time "your sheets config is incomplete" or "sheets fetch failed"
+  // toast on first dashboard load this session. sessionStorage gate so a
+  // reload doesn't re-notify until the user opens a new tab.
+  useEffect(() => {
+    if (typeof window === 'undefined') return
+    if (window.sessionStorage.getItem(SHEETS_SETUP_TOAST_KEY)) return
+
+    const env: Record<string, string | undefined> = import.meta.env as never
+    const sheetsVars: Array<[string, string]> = [
+      ['VITE_GOOGLE_SHEETS_CLIENT_ID', env.VITE_GOOGLE_SHEETS_CLIENT_ID ?? ''],
+      ['VITE_GOOGLE_SHEETS_CLIENT_SECRET', env.VITE_GOOGLE_SHEETS_CLIENT_SECRET ?? ''],
+      ['VITE_GOOGLE_SHEETS_REFRESH_TOKEN', env.VITE_GOOGLE_SHEETS_REFRESH_TOKEN ?? ''],
+      ['VITE_GOOGLE_SHEETS_SPREADSHEET_ID', env.VITE_GOOGLE_SHEETS_SPREADSHEET_ID ?? ''],
+    ]
+    const set = sheetsVars.filter(([, v]) => v && v.trim())
+    const missing = sheetsVars
+      .filter(([, v]) => !v || !v.trim())
+      .map(([k]) => k)
+
+    // Partial configuration → user set some env vars but not all.
+    if (set.length > 0 && missing.length > 0) {
+      toast.warning(
+        `Google Sheets integration is partially configured. Missing: ${missing.join(', ')}. Add them to your .env file and restart.`,
+        { duration: 8000 },
+      )
+      window.sessionStorage.setItem(SHEETS_SETUP_TOAST_KEY, '1')
+      return
+    }
+    // Fully configured but never produced a successful fetch — wait for
+    // the initial load to settle before flagging. `isInitialLoading`
+    // covers Atlas; we also want sheets to have had its first shot.
+    if (set.length === sheetsVars.length && !isInitialLoading && !sheetsConnected) {
+      toast.error(
+        `Google Sheets connected but fetch failed: ${syncError ?? 'check Settings for details'}.`,
+        { duration: 8000 },
+      )
+      window.sessionStorage.setItem(SHEETS_SETUP_TOAST_KEY, '1')
+    }
+  }, [isInitialLoading, sheetsConnected, syncError])
 
   const summary = useMemo(() => computeSummary(tasks), [tasks])
   const attention = useMemo(
