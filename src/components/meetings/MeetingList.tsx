@@ -7,9 +7,18 @@ interface MeetingListProps {
   members: TeamMember[]
   /** Builds the route for each meeting row (`/projects/:p/meetings/:m`). */
   hrefForMeeting: (meeting: Meeting) => string
+  /** Dates (YYYY-MM-DD) that have ZoomBot recordings. Rows whose
+   *  meeting date matches one of these show a "Recordings available"
+   *  badge. */
+  recordingDates?: ReadonlySet<string>
 }
 
-export function MeetingList({ meetings, members, hrefForMeeting }: MeetingListProps) {
+export function MeetingList({
+  meetings,
+  members,
+  hrefForMeeting,
+  recordingDates,
+}: MeetingListProps) {
   if (meetings.length === 0) {
     return (
       <div className="flex min-h-[200px] flex-col items-center justify-center rounded-lg border border-dashed border-[var(--border-subtle)] bg-[var(--bg-surface)]/40 px-6 py-10 text-center">
@@ -44,6 +53,7 @@ export function MeetingList({ meetings, members, hrefForMeeting }: MeetingListPr
             meeting={m}
             members={members}
             to={hrefForMeeting(m)}
+            hasRecordings={recordingDates?.has(m.date) ?? false}
           />
         </li>
       ))}

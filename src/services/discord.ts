@@ -35,6 +35,9 @@ export type DiscordEvent =
   | 'sheets_initial_sync'
   | 'sheets_changes_detected'
   | 'sheets_sync_failed'
+  | 'zoombot_meeting_started'
+  | 'zoombot_meeting_ended'
+  | 'zoombot_bot_error'
 
 export interface DiscordSettings {
   webhookUrl: string
@@ -59,6 +62,12 @@ export const DEFAULT_DISCORD_SETTINGS: DiscordSettings = {
     sheets_initial_sync: true,
     sheets_changes_detected: false,
     sheets_sync_failed: true,
+    // ZoomBot meeting events: start/end/error are all low-frequency and
+    // high-value (the team wants to know when recording begins and what
+    // breaks), so all three opt in by default.
+    zoombot_meeting_started: true,
+    zoombot_meeting_ended: true,
+    zoombot_bot_error: true,
   },
 }
 
@@ -621,6 +630,134 @@ function describeValue(v: string | null | undefined): string {
 function truncate(s: string, max: number): string {
   if (s.length <= max) return s
   return `${s.slice(0, max - 1)}…`
+}
+
+// ── ZoomBot meeting embeds ──────────────────────────────────────────────
+
+/**
+ * Sent on the rising edge from "no active bots" to "at least one active
+ * bot." `targets` is the list of meeting participants the bots are
+ * shadowing — capped at 1024 chars per Discord field.
+ */
+export function buildZoomBotMeetingStartedEmbed(args: {
+  sessionId: string
+  activeBotCount: number
+  targets: string[]
+}): DiscordEmbed {
+  return {
+    title: '🔴 Meeting Started',
+    description: 'ZoomBot is recording',
+    color: COLOR.sheetsRed,
+    fields: [
+      {
+        name: 'Session',
+        value: args.sessionId
+          ? `\`${args.sessionId.slice(0, 32)}\``
+          : '_(unknown)_',
+        inline: true,
+      },
+      {
+        name: 'Bots Active',
+        value: String(args.activeBotCount),
+        inline: true,
+      },
+      {
+        name: 'Tracking',
+        value: args.targets.length
+          ? truncate(args.targets.join(', '), 1000)
+          : '_(no targets)_',
+        inline: false,
+      },
+    ],
+    footer: { text: 'Live transcription available in Team Manager' },
+    timestamp: new Date().toISOString(),
+  }
+}
+
+/**
+ * Sent on the falling edge / `allStopped` event. Duration is computed
+ * from the start time captured at the rising edge; the data-captured
+ * field sums every bot's final `dataSize`.
+ */
+export function buildZoomBotMeetingEndedEmbed(args: {
+  sessionId: string
+  durationMs: number
+  totalBytes: number
+}): DiscordEmbed {
+  return {
+    title: '⏹️ Meeting Ended',
+    description: 'Recording complete',
+    color: COLOR.green,
+    fields: [
+      {
+        name: 'Session',
+        value: args.sessionId
+          ? `\`${args.sessionId.slice(0, 32)}\``
+          : '_(unknown)_',
+        inline: true,
+      },
+      {
+        name: 'Duration',
+        value: formatMeetingDuration(args.durationMs),
+        inline: true,
+      },
+      {
+        name: 'Data Captured',
+        value: formatBytesForDiscord(args.totalBytes),
+        inline: true,
+      },
+      {
+        name: 'Recordings',
+        value: 'Available in Team Manager → Project Meetings',
+        inline: false,
+      },
+    ],
+    timestamp: new Date().toISOString(),
+  }
+}
+
+export function buildZoomBotBotErrorEmbed(args: {
+  botName: string
+  botTarget: string
+  errorMessage: string
+}): DiscordEmbed {
+  return {
+    title: '⚠️ Bot Error',
+    description: `${args.botName} encountered an issue`,
+    color: COLOR.amber,
+    fields: [
+      {
+        name: 'Bot',
+        value: `${args.botName} (tracking ${args.botTarget})`,
+        inline: true,
+      },
+      {
+        name: 'Error',
+        value: truncate(args.errorMessage || 'Unknown error', 1000),
+        inline: false,
+      },
+    ],
+    timestamp: new Date().toISOString(),
+  }
+}
+
+function formatMeetingDuration(ms: number): string {
+  if (!Number.isFinite(ms) || ms < 0) return '0s'
+  const totalSeconds = Math.floor(ms / 1000)
+  const hours = Math.floor(totalSeconds / 3600)
+  const minutes = Math.floor((totalSeconds % 3600) / 60)
+  const seconds = totalSeconds % 60
+  if (hours > 0) return `${hours}h ${minutes}m`
+  if (minutes > 0) return `${minutes}m ${seconds}s`
+  return `${seconds}s`
+}
+
+function formatBytesForDiscord(n: number): string {
+  if (!Number.isFinite(n) || n <= 0) return '0 B'
+  if (n < 1024) return `${n} B`
+  if (n < 1024 * 1024) return `${(n / 1024).toFixed(1)} KB`
+  if (n < 1024 * 1024 * 1024) return `${(n / (1024 * 1024)).toFixed(1)} MB`
+  return `${(n / (1024 * 1024 * 1024)).toFixed(2)} GB`
 }
 
 /** Sample embed used by the "Test webhook" button in Settings. */

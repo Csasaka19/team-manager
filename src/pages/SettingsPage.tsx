@@ -3,6 +3,7 @@ import { AtlasDataOverview } from '@/components/settings/AtlasDataOverview'
 import { AtlasEndpointTable } from '@/components/settings/AtlasEndpointTable'
 import { AtlasSection } from '@/components/settings/AtlasSection'
 import { SheetsSection } from '@/components/settings/SheetsSection'
+import { ZoomBotSection } from '@/components/settings/ZoomBotSection'
 import { DiscordSection } from '@/components/settings/DiscordSection'
 import { NotificationsSection } from '@/components/settings/NotificationsSection'
 import { TagsSection } from '@/components/settings/TagsSection'
@@ -30,6 +31,7 @@ export default function SettingsPage() {
       {isPM && <AtlasDataOverview />}
       {isPM && <AtlasEndpointTable />}
       {isPM && <SheetsSection />}
+      {isPM && <ZoomBotSection />}
       {isPM && <WorkspaceSection />}
       {isPM && <TagsSection />}
       {isPM && <TaskTemplatesSection />}

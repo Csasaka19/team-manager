@@ -15,7 +15,8 @@ export function TopBar({ onMobileMenuClick, onSearchClick }: TopBarProps) {
   const { workspaceName } = useData()
   return (
     <header
-      className="fixed inset-x-0 top-0 z-20 h-14 border-b border-[var(--border-subtle)] bg-[var(--bg-surface)] md:left-16 lg:left-60"
+      className="fixed inset-x-0 z-20 h-14 border-b border-[var(--border-subtle)] bg-[var(--bg-surface)] transition-[top] duration-200 md:left-16 lg:left-60"
+      style={{ top: 'var(--banner-h, 0px)' }}
       role="banner"
     >
       <div className="flex h-full items-center justify-between gap-2 px-3 md:gap-4 md:px-6">

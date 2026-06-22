@@ -238,3 +238,33 @@
   border-radius: 0.5rem;
   animation: tourPulse 2s ease-in-out infinite;
 }
+
+/* ZoomBot live-meeting transcript: caption blocks slide in from the
+   bottom as they arrive. */
+@keyframes captionSlideIn {
+  0% {
+    transform: translateY(8px);
+    opacity: 0;
+  }
+  100% {
+    transform: translateY(0);
+    opacity: 1;
+  }
+}
+
+/* Audio-activity visualizer for the live-meeting bot cards. Four bars
+   each with their own delay so the bouncing reads as a sound waveform.
+   Only applied when the bot is active — otherwise bars stay at min
+   height. */
+@keyframes audioBar {
+  0%, 100% { transform: scaleY(0.3); }
+  50%      { transform: scaleY(1); }
+}
+.audio-bar-active {
+  transform-origin: bottom;
+  animation: audioBar 900ms ease-in-out infinite;
+}
+.audio-bar-active.audio-bar-1 { animation-delay: 0ms; }
+.audio-bar-active.audio-bar-2 { animation-delay: 120ms; }
+.audio-bar-active.audio-bar-3 { animation-delay: 240ms; }
+.audio-bar-active.audio-bar-4 { animation-delay: 360ms; }

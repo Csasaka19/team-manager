@@ -56,9 +56,9 @@ export function Sidebar({ mobileOpen, onMobileClose }: SidebarProps) {
 
       <aside
         className={cn(
-          'fixed inset-y-0 left-0 z-40 flex flex-col',
+          'fixed bottom-0 left-0 z-40 flex flex-col',
           'bg-[var(--bg-surface)] border-r border-[var(--border-subtle)]',
-          'transition-[transform,width] duration-200 ease-out',
+          'transition-[transform,width,top] duration-200 ease-out',
           // Mobile (<768): hidden overlay
           mobileOpen ? 'translate-x-0' : '-translate-x-full',
           // Tablet (>=768): visible, 64px icons-only
@@ -68,6 +68,7 @@ export function Sidebar({ mobileOpen, onMobileClose }: SidebarProps) {
           // Mobile width (when shown as overlay)
           'w-60',
         )}
+        style={{ top: 'var(--banner-h, 0px)' }}
         aria-label="Primary navigation"
       >
         <div className="flex h-14 items-center justify-center border-b border-[var(--border-subtle)] md:justify-center lg:justify-start lg:px-6">

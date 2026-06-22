@@ -20,6 +20,7 @@ import { toast } from 'sonner'
 import { Avatar } from '@/components/shared/Avatar'
 import { ConfirmModal } from '@/components/shared/ConfirmModal'
 import { DueDatePicker } from '@/components/shared/DueDatePicker'
+import { RecordingsSection } from '@/components/recordings/RecordingsSection'
 import { useAuth } from '@/data/auth'
 import { useData } from '@/data/store'
 import { useDocumentTitle } from '@/hooks/useDocumentTitle'
@@ -217,6 +218,21 @@ export default function MeetingDetailPage() {
         canEdit={canEditContent && !cancelled}
         onChange={(links) => void safeUpdate('links', { links })}
       />
+
+      <section aria-labelledby="meeting-recordings-heading">
+        <h2
+          id="meeting-recordings-heading"
+          className="text-lg font-semibold text-[var(--text-primary)]"
+        >
+          Recordings
+        </h2>
+        <p className="mt-0.5 text-sm text-[var(--text-secondary)]">
+          ZoomBot audio, video, and transcripts captured on {meeting.date}.
+        </p>
+        <div className="mt-3">
+          <RecordingsSection filterDate={meeting.date} compact />
+        </div>
+      </section>
 
       <ConfirmModal
         open={confirmDeleteOpen}

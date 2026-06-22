@@ -3,6 +3,9 @@ import { Link, Navigate, useParams } from 'react-router-dom'
 import { ArrowLeft, Columns3, FileText, Plus } from 'lucide-react'
 import { toast } from 'sonner'
 import { MeetingList } from '@/components/meetings/MeetingList'
+import { RecordingsSection } from '@/components/recordings/RecordingsSection'
+import { buildRecordingDateSet } from '@/components/recordings/RecordingsSection'
+import { useZoomBot } from '@/hooks/useZoomBot'
 import {
   MeetingFormModal,
   type MeetingFormValues,
@@ -16,6 +19,11 @@ export default function ProjectDetailPage() {
   const { projectId } = useParams<{ projectId: string }>()
   const { isPM } = useAuth()
   const { projects, meetings, teamMembers, createMeeting, dataSource } = useData()
+  const { recordings } = useZoomBot()
+  const recordingDateSet = useMemo(
+    () => buildRecordingDateSet(recordings),
+    [recordings],
+  )
   const [newMeetingOpen, setNewMeetingOpen] = useState(false)
 
   const project = useMemo(
@@ -138,7 +146,10 @@ export default function ProjectDetailPage() {
         meetings={projectMeetings}
         members={teamMembers}
         hrefForMeeting={(m) => `/projects/${projectId}/meetings/${m.id}`}
+        recordingDates={recordingDateSet}
       />
+
+      <RecordingsSection />
 
       <MeetingFormModal
         open={newMeetingOpen}

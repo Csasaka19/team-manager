@@ -4,6 +4,7 @@ import { BrowserRouter } from 'react-router-dom'
 import { Toaster } from 'sonner'
 import { AuthProvider } from './data/auth'
 import { DataProvider } from './data/store'
+import { ZoomBotProvider } from './hooks/useZoomBot'
 import { useTheme } from './lib/theme'
 import './index.css'
 import App from './App.tsx'
@@ -30,8 +31,10 @@ createRoot(document.getElementById('root')!).render(
     <BrowserRouter>
       <AuthProvider>
         <DataProvider>
-          <App />
-          <ThemedToaster />
+          <ZoomBotProvider>
+            <App />
+            <ThemedToaster />
+          </ZoomBotProvider>
         </DataProvider>
       </AuthProvider>
     </BrowserRouter>

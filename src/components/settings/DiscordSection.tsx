@@ -65,6 +65,24 @@ const EVENTS: EventOption[] = [
     description:
       'Alerts when a refresh errors out (revoked token, 5xx, network) so you find out before the team does.',
   },
+  {
+    key: 'zoombot_meeting_started',
+    label: 'Meeting started',
+    description:
+      'ZoomBot has begun recording a meeting. Includes the participants being tracked.',
+  },
+  {
+    key: 'zoombot_meeting_ended',
+    label: 'Meeting ended',
+    description:
+      'Posts when all bots stop. Includes duration and total bytes captured.',
+  },
+  {
+    key: 'zoombot_bot_error',
+    label: 'Bot error',
+    description:
+      'Fires when a specific bot fails mid-meeting. Useful for catching join failures and disconnects.',
+  },
 ]
 
 const WEBHOOK_URL_PATTERN = /^https:\/\/discord(?:app)?\.com\/api\/webhooks\//i

@@ -20,8 +20,12 @@ import {
 } from '@/services/discord'
 import { QuickCreateFab } from './QuickCreateFab'
 import { Sidebar } from './Sidebar'
+import { LiveMeetingBanner } from './LiveMeetingBanner'
 import { StaleDataBanner } from './StaleDataBanner'
 import { TopBar } from './TopBar'
+import { useZoomBot } from '@/hooks/useZoomBot'
+import { useZoomBotMeetingDetection } from '@/hooks/useZoomBotMeetingDetection'
+import { isZoomBotConfigured } from '@/services/zoombot-config'
 
 const G_SEQUENCE_WINDOW_MS = 1500
 
@@ -49,6 +53,13 @@ export function Layout() {
     useData()
 
   const { discordSettings } = useData()
+  // ZoomBot meeting detection. Polls /api/state every 60s while idle,
+  // hands off to the WebSocket once a meeting becomes active, then
+  // resumes polling when it ends. `hasActiveMeeting` drives the
+  // banner's slide-down and the layout's --banner-h variable below.
+  useZoomBotMeetingDetection()
+  const { hasActiveMeeting: zoomMeetingActive } = useZoomBot()
+  const showLiveBanner = zoomMeetingActive && isZoomBotConfigured()
   const [mobileOpen, setMobileOpen] = useState(false)
   const [paletteOpen, setPaletteOpen] = useState(false)
   const [helpOpen, setHelpOpen] = useState(false)
@@ -216,14 +227,27 @@ export function Layout() {
   const anyModalOpen = paletteOpen || createOpen || helpOpen
 
   return (
-    <div className="min-h-screen bg-[var(--bg-base)] text-[var(--text-primary)]">
+    <div
+      className="min-h-screen bg-[var(--bg-base)] text-[var(--text-primary)]"
+      // Sets the height that TopBar / Sidebar / main read from to push
+      // themselves down when the LiveMeetingBanner is visible. CSS
+      // transitions on the consumers animate the resulting layout
+      // shift smoothly.
+      style={
+        { ['--banner-h' as never]: showLiveBanner ? '44px' : '0px' } as React.CSSProperties
+      }
+    >
+      <LiveMeetingBanner />
       <Sidebar mobileOpen={mobileOpen} onMobileClose={() => setMobileOpen(false)} />
       <TopBar
         onMobileMenuClick={() => setMobileOpen(true)}
         onSearchClick={() => setPaletteOpen(true)}
       />
 
-      <main className="md:pl-16 lg:pl-60 pt-14">
+      <main
+        className="md:pl-16 lg:pl-60 transition-[padding] duration-200"
+        style={{ paddingTop: 'calc(var(--banner-h, 0px) + 3.5rem)' }}
+      >
         <StaleDataBanner />
         {/* Key on pathname so the fadeIn keyframe replays on every route
             change. ErrorBoundary is scoped here so a crashing page leaves

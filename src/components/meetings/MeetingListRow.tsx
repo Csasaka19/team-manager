@@ -33,6 +33,9 @@ interface MeetingListRowProps {
    *  the title. Used by the cross-project Meetings index so each row
    *  carries its project label; per-project lists omit it. */
   projectChip?: { name: string; color: string }
+  /** True when a ZoomBot recording exists for the same date as the
+   *  meeting. Renders a "Recordings available" pill in the row header. */
+  hasRecordings?: boolean
 }
 
 const STATUS_STYLE: Record<
@@ -56,7 +59,13 @@ const STATUS_STYLE: Record<
   },
 }
 
-export function MeetingListRow({ meeting, members, to, projectChip }: MeetingListRowProps) {
+export function MeetingListRow({
+  meeting,
+  members,
+  to,
+  projectChip,
+  hasRecordings = false,
+}: MeetingListRowProps) {
   const attendees = meeting.attendeeIds
     .map((id) => members.find((m) => m.id === id))
     .filter((m): m is TeamMember => Boolean(m))
@@ -114,6 +123,14 @@ export function MeetingListRow({ meeting, members, to, projectChip }: MeetingLis
             >
               <CheckCircle2 className="h-3 w-3" aria-hidden="true" />
               All actions done
+            </span>
+          )}
+          {hasRecordings && (
+            <span
+              className="inline-flex h-5 shrink-0 items-center gap-1 rounded-full bg-[color-mix(in_srgb,var(--accent-primary)_15%,transparent)] px-2 text-[10px] font-medium text-[var(--accent-primary)]"
+              title="ZoomBot recordings available for this date"
+            >
+              Recordings available
             </span>
           )}
         </div>

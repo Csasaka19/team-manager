@@ -14,6 +14,7 @@ import MeetingDetailPage from '@/pages/MeetingDetailPage'
 import AtlasPage from '@/pages/AtlasPage'
 import AtlasTaskDetailPage from '@/pages/AtlasTaskDetailPage'
 import AtlasSummaryDetailPage from '@/pages/AtlasSummaryDetailPage'
+import LiveMeetingPage from '@/pages/LiveMeetingPage'
 import TeamPage from '@/pages/TeamPage'
 import SettingsPage from '@/pages/SettingsPage'
 import NotFoundPage from '@/pages/NotFoundPage'
@@ -60,6 +61,7 @@ function App() {
             element={<AtlasSummaryDetailPage />}
           />
           <Route path="/team" element={<TeamPage />} />
+          <Route path="/meetings/live" element={<LiveMeetingPage />} />
           <Route path="/settings" element={<SettingsPage />} />
           <Route path="*" element={<NotFoundPage />} />
         </Route>
