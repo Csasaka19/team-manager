@@ -19,8 +19,20 @@ const ACTIVE_STATUSES = ['todo', 'in_progress', 'in_review'] as const
 export default function TeamPage() {
   useDocumentTitle('Team')
   const { currentUser, isPM } = useAuth()
-  const { teamMembers, tasks, inviteTeamMember, removeTeamMember, dataSource } =
-    useData()
+  const {
+    teamMembers,
+    tasks,
+    projects,
+    inviteTeamMember,
+    removeTeamMember,
+    dataSource,
+  } = useData()
+
+  // Map for the per-task project chip rendered inside team task cards.
+  const projectsById = useMemo(
+    () => new Map(projects.map((p) => [p.id, p])),
+    [projects],
+  )
 
   const [expandedId, setExpandedId] = useState<string | null>(null)
   const [inviteOpen, setInviteOpen] = useState(false)
@@ -143,6 +155,7 @@ export default function TeamPage() {
               <TeamMemberCard
                 member={m}
                 tasks={memberTasks}
+                projectsById={projectsById}
                 expanded={isExpanded}
                 onToggle={() =>
                   setExpandedId((prev) => (prev === m.id ? null : m.id))

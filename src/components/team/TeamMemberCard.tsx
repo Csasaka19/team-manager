@@ -1,15 +1,22 @@
-import { useMemo } from 'react'
-import { Link } from 'react-router-dom'
+import { useMemo, useState } from 'react'
 import { ChevronDown, ChevronRight, Trash2 } from 'lucide-react'
 import { Avatar } from '@/components/shared/Avatar'
-import { StatusPill } from '@/components/shared/StatusPill'
+import { TeamTaskCard, TeamTaskRow } from './TeamTaskCard'
 import { cn } from '@/lib/utils'
 import { now, startOfWeek } from '@/lib/date-utils'
-import { STATUS_LABELS, type Task, type TaskStatus, type TeamMember } from '@/data/types'
+import {
+  STATUS_LABELS,
+  type Project,
+  type Task,
+  type TaskStatus,
+  type TeamMember,
+} from '@/data/types'
 
 interface TeamMemberCardProps {
   member: TeamMember
   tasks: Task[]
+  /** Project lookup so each task can render its color + name chip. */
+  projectsById: ReadonlyMap<string, Project>
   expanded: boolean
   onToggle: () => void
   canRemove: boolean
@@ -17,11 +24,20 @@ interface TeamMemberCardProps {
 }
 
 const ACTIVE_STATUSES: TaskStatus[] = ['todo', 'in_progress', 'in_review']
-const GROUPED_STATUSES: TaskStatus[] = ['todo', 'in_progress', 'in_review', 'done']
+/** Order of status groups in the expanded view — In Progress / Review
+ *  first (most urgent for the member), then To Do, then Done. */
+const GROUPED_STATUSES: TaskStatus[] = [
+  'in_progress',
+  'in_review',
+  'todo',
+  'done',
+]
+const DEFAULT_COLLAPSED: ReadonlySet<TaskStatus> = new Set(['done'])
 
 export function TeamMemberCard({
   member,
   tasks,
+  projectsById,
   expanded,
   onToggle,
   canRemove,
@@ -32,13 +48,26 @@ export function TeamMemberCard({
   const velocity = useMemo(() => computeVelocity(tasks), [tasks])
   const isPM = member.role === 'pm'
 
-  const previewTasks = tasks
-    .filter((t) => ACTIVE_STATUSES.includes(t.status))
-    .slice(0, 3)
-  const moreCount = Math.max(
-    0,
-    tasks.filter((t) => ACTIVE_STATUSES.includes(t.status)).length - previewTasks.length,
+  const activeTasks = useMemo(
+    () => tasks.filter((t) => ACTIVE_STATUSES.includes(t.status)),
+    [tasks],
   )
+  const previewTasks = activeTasks.slice(0, 3)
+  const moreCount = Math.max(0, activeTasks.length - previewTasks.length)
+
+  // Per-member collapsed status groups in the expanded view. Done is
+  // collapsed by default per spec; everything else is expanded.
+  const [collapsed, setCollapsed] = useState<Set<TaskStatus>>(
+    () => new Set(DEFAULT_COLLAPSED),
+  )
+  const toggleGroup = (status: TaskStatus) => {
+    setCollapsed((prev) => {
+      const next = new Set(prev)
+      if (next.has(status)) next.delete(status)
+      else next.add(status)
+      return next
+    })
+  }
 
   return (
     <article
@@ -49,11 +78,14 @@ export function TeamMemberCard({
           : 'hover:border-[var(--border-default)] hover:shadow-[0_2px_8px_rgba(0,0,0,0.2)]',
       )}
     >
+      {/* Member header — toggles the expanded view. Pulled out as its
+          own button so we don't end up with task <Link>s nested inside
+          a <button>, which is invalid HTML and breaks keyboard nav. */}
       <button
         type="button"
         onClick={onToggle}
         aria-expanded={expanded}
-        className="flex w-full items-start gap-3 p-4 text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent-focus)] rounded-lg"
+        className="flex w-full items-start gap-3 rounded-lg p-4 text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent-focus)]"
       >
         <Avatar name={member.name} size="lg" />
         <div className="min-w-0 flex-1">
@@ -72,8 +104,9 @@ export function TeamMemberCard({
               {isPM ? 'PM' : 'Member'}
             </span>
           </div>
-          <p className="mt-0.5 text-xs text-[var(--text-secondary)]">{member.email}</p>
-
+          <p className="mt-0.5 text-xs text-[var(--text-secondary)]">
+            {member.email}
+          </p>
           <div className="mt-3 flex flex-wrap gap-x-3 gap-y-1 text-xs text-[var(--text-secondary)] tabular-nums">
             <span>
               <span className="font-semibold text-[var(--text-primary)]">
@@ -89,30 +122,7 @@ export function TeamMemberCard({
               completed this week
             </span>
           </div>
-
-          {previewTasks.length === 0 ? (
-            <p className="mt-3 text-xs italic text-[var(--text-muted)]">
-              No tasks assigned
-            </p>
-          ) : (
-            <ul className="mt-3 flex flex-col gap-1.5">
-              {previewTasks.map((t) => (
-                <li key={t.id} className="flex items-center gap-2">
-                  <StatusPill status={t.status} />
-                  <span className="truncate text-xs text-[var(--text-secondary)]">
-                    {t.title}
-                  </span>
-                </li>
-              ))}
-              {moreCount > 0 && (
-                <li className="text-xs text-[var(--text-muted)]">
-                  + {moreCount} more
-                </li>
-              )}
-            </ul>
-          )}
         </div>
-
         <span
           aria-hidden="true"
           className="mt-1 inline-flex h-5 w-5 shrink-0 items-center justify-center text-[var(--text-muted)]"
@@ -125,6 +135,42 @@ export function TeamMemberCard({
         </span>
       </button>
 
+      {/* Collapsed preview — separate from the header button so each
+          row is its own clickable Link without nesting interactive
+          elements. */}
+      {!expanded && (
+        <div className="px-4 pb-4">
+          {activeTasks.length === 0 ? (
+            <p className="text-xs italic text-[var(--text-muted)]">
+              No active tasks assigned
+            </p>
+          ) : (
+            <ul className="flex flex-col gap-1.5">
+              {previewTasks.map((t) => (
+                <li key={t.id}>
+                  <TeamTaskRow
+                    task={t}
+                    project={projectsById.get(t.projectId)}
+                  />
+                </li>
+              ))}
+              {moreCount > 0 && (
+                <li>
+                  <button
+                    type="button"
+                    onClick={onToggle}
+                    className="rounded text-xs text-[var(--accent-primary)] hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent-focus)]"
+                  >
+                    + {moreCount} more
+                  </button>
+                </li>
+              )}
+            </ul>
+          )}
+        </div>
+      )}
+
+      {/* Expanded — full task lists grouped by status, plus workload + velocity. */}
       {expanded && (
         <div className="border-t border-[var(--border-subtle)] px-4 py-4 md:px-5 md:py-5">
           <WorkloadBar tasks={tasks} />
@@ -133,23 +179,34 @@ export function TeamMemberCard({
             {GROUPED_STATUSES.map((status) => {
               const list = grouped[status]
               if (list.length === 0) return null
+              const isCollapsed = collapsed.has(status)
               return (
                 <section key={status}>
-                  <h4 className="mb-2 text-[11px] font-semibold uppercase tracking-[0.5px] text-[var(--text-secondary)]">
+                  <button
+                    type="button"
+                    onClick={() => toggleGroup(status)}
+                    aria-expanded={!isCollapsed}
+                    className="mb-2 inline-flex items-center gap-1.5 rounded text-[11px] font-semibold uppercase tracking-[0.5px] text-[var(--text-secondary)] hover:text-[var(--text-primary)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent-focus)]"
+                  >
+                    {isCollapsed ? (
+                      <ChevronRight className="h-3 w-3" aria-hidden="true" />
+                    ) : (
+                      <ChevronDown className="h-3 w-3" aria-hidden="true" />
+                    )}
                     {STATUS_LABELS[status]} ({list.length})
-                  </h4>
-                  <ul className="flex flex-col gap-1">
-                    {list.map((t) => (
-                      <li key={t.id}>
-                        <Link
-                          to={`/tasks/${t.id}`}
-                          className="block truncate rounded px-2 py-1 text-sm text-[var(--text-primary)] transition-colors hover:bg-[var(--bg-elevated)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent-focus)]"
-                        >
-                          {t.title}
-                        </Link>
-                      </li>
-                    ))}
-                  </ul>
+                  </button>
+                  {!isCollapsed && (
+                    <ul className="grid grid-cols-1 gap-2 md:grid-cols-2">
+                      {list.map((t) => (
+                        <li key={t.id}>
+                          <TeamTaskCard
+                            task={t}
+                            project={projectsById.get(t.projectId)}
+                          />
+                        </li>
+                      ))}
+                    </ul>
+                  )}
                 </section>
               )
             })}
@@ -224,6 +281,7 @@ const WORKLOAD_COLOR_VAR: Record<TaskStatus, string> = {
   in_review: '--status-review',
   done: '--status-done',
 }
+const WORKLOAD_STATUSES: TaskStatus[] = ['todo', 'in_progress', 'in_review', 'done']
 
 function WorkloadBar({ tasks }: { tasks: Task[] }) {
   const total = tasks.length
@@ -237,7 +295,7 @@ function WorkloadBar({ tasks }: { tasks: Task[] }) {
       </div>
     )
   }
-  const counts = GROUPED_STATUSES.map((status) => ({
+  const counts = WORKLOAD_STATUSES.map((status) => ({
     status,
     count: tasks.filter((t) => t.status === status).length,
   }))
@@ -285,7 +343,6 @@ interface WeekBucket {
 
 function computeVelocity(tasks: Task[]): WeekBucket[] {
   const today = now()
-  // Build 4 buckets ending with the current week.
   const startThisWeek = startOfWeek(today)
   const buckets: WeekBucket[] = []
   for (let i = 3; i >= 0; i--) {
