@@ -147,3 +147,123 @@ export async function fetchTranscriptText(path: string): Promise<string> {
   }
   return res.text()
 }
+
+// ── Write operations ────────────────────────────────────────────────────
+//
+// All write endpoints use the same `timedFetch` so the 10-second AbortController
+// budget and network-error normalisation are shared. Success returns void; the
+// caller relies on the WebSocket (`botStatus` / `deployed` / `botsUpdated`)
+// to refresh state, with an optional `pollState()` from the context as a
+// belt-and-braces fallback when the socket is closed.
+
+/** POST /api/bots/:id/deploy — start (or restart) a configured bot. */
+export async function deployBot(botId: number): Promise<void> {
+  const { baseUrl } = getZoomBotConfig()
+  const res = await timedFetch(`${baseUrl}/api/bots/${botId}/deploy`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+  })
+  if (!res.ok) {
+    throw new ZoomBotApiError(
+      await formatHttpError(res, `Failed to deploy bot ${botId}`),
+      res.status,
+    )
+  }
+}
+
+/** POST /api/bots/:id/stop — stop a running bot. */
+export async function stopBot(botId: number): Promise<void> {
+  const { baseUrl } = getZoomBotConfig()
+  const res = await timedFetch(`${baseUrl}/api/bots/${botId}/stop`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+  })
+  if (!res.ok) {
+    throw new ZoomBotApiError(
+      await formatHttpError(res, `Failed to stop bot ${botId}`),
+      res.status,
+    )
+  }
+}
+
+/** POST /api/stop — stop every bot at once. */
+export async function stopAllBots(): Promise<void> {
+  const { baseUrl } = getZoomBotConfig()
+  const res = await timedFetch(`${baseUrl}/api/stop`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+  })
+  if (!res.ok) {
+    throw new ZoomBotApiError(
+      await formatHttpError(res, 'Failed to stop all bots'),
+      res.status,
+    )
+  }
+}
+
+/** POST /api/bots — create a new bot for the session. */
+export async function createBot(name: string, target: string): Promise<void> {
+  const { baseUrl } = getZoomBotConfig()
+  const res = await timedFetch(`${baseUrl}/api/bots`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ name, target }),
+  })
+  if (!res.ok) {
+    throw new ZoomBotApiError(
+      await formatHttpError(res, `Failed to create bot ${name}`),
+      res.status,
+    )
+  }
+}
+
+/** PUT /api/bots/:id — rename or re-target an existing bot. */
+export async function updateBot(
+  botId: number,
+  name: string,
+  target: string,
+): Promise<void> {
+  const { baseUrl } = getZoomBotConfig()
+  const res = await timedFetch(`${baseUrl}/api/bots/${botId}`, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ name, target }),
+  })
+  if (!res.ok) {
+    throw new ZoomBotApiError(
+      await formatHttpError(res, `Failed to update bot ${botId}`),
+      res.status,
+    )
+  }
+}
+
+/** DELETE /api/bots/:id — remove a bot from the session config. */
+export async function deleteBot(botId: number): Promise<void> {
+  const { baseUrl } = getZoomBotConfig()
+  const res = await timedFetch(`${baseUrl}/api/bots/${botId}`, {
+    method: 'DELETE',
+  })
+  if (!res.ok) {
+    throw new ZoomBotApiError(
+      await formatHttpError(res, `Failed to delete bot ${botId}`),
+      res.status,
+    )
+  }
+}
+
+/**
+ * Best-effort error message. Pulls a textual body from the response,
+ * trims to 200 chars to keep toast copy reasonable.
+ */
+async function formatHttpError(res: Response, fallback: string): Promise<string> {
+  try {
+    const text = await res.text()
+    if (text) {
+      const trimmed = text.trim().slice(0, 200)
+      return `${fallback}: HTTP ${res.status} ${trimmed}`
+    }
+  } catch {
+    // ignored
+  }
+  return `${fallback}: HTTP ${res.status}`
+}

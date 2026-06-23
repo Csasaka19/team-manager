@@ -99,6 +99,11 @@ export interface ZoomBotContextValue {
    *  takes over once it's open. Errors are swallowed (logged) so the
    *  caller doesn't have to wrap in try/catch. */
   pollState: () => Promise<void>
+  /** Fire a Discord embed gated by the user's settings. Exposed so
+   *  bot-control components can emit deploy/stop audit messages
+   *  without their own copy of the wiring. No-op if the event is
+   *  toggled off or no webhook is configured. */
+  fireDiscord: (event: DiscordEvent, builder: () => DiscordEmbed) => void
 }
 
 const ZoomBotContext = createContext<ZoomBotContextValue | null>(null)
@@ -464,6 +469,7 @@ export function ZoomBotProvider({ children }: { children: ReactNode }) {
       connectWebSocket,
       disconnectWebSocket,
       pollState,
+      fireDiscord,
     }),
     [
       isConnected,
@@ -481,6 +487,7 @@ export function ZoomBotProvider({ children }: { children: ReactNode }) {
       connectWebSocket,
       disconnectWebSocket,
       pollState,
+      fireDiscord,
     ],
   )
 

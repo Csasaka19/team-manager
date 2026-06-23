@@ -37,6 +37,8 @@ import {
 import { zoomBotWS } from '@/services/zoombot-websocket'
 import { formatBytes } from '@/lib/recordings-grouping'
 import type { ZoomBot } from '@/services/zoombot-types'
+import { useAuth } from '@/data/auth'
+import { ManageBotsSection } from './ManageBotsSection'
 import { cn } from '@/lib/utils'
 
 const ALL_WS_TYPES = [
@@ -53,6 +55,7 @@ const ALL_WS_TYPES = [
 type ConnectionStatus = 'connected' | 'unreachable' | 'unknown' | 'unconfigured'
 
 export function ZoomBotSection() {
+  const { isPM } = useAuth()
   const {
     botState,
     activeBots,
@@ -372,6 +375,9 @@ export function ZoomBotSection() {
           the Live Meeting page. Messages count resets on full page reload.
         </p>
       </div>
+
+      {/* ── Manage bots (PM-only write surface) ──────────────────── */}
+      {isPM && <ManageBotsSection />}
 
       {/* ── Info copy ────────────────────────────────────────────── */}
       <div className="mt-4 rounded-lg border border-dashed border-[var(--border-subtle)] bg-[var(--bg-surface)]/40 p-4">

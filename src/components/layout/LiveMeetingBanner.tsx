@@ -1,6 +1,8 @@
 import { useNavigate } from 'react-router-dom'
+import { useAuth } from '@/data/auth'
 import { useZoomBot } from '@/hooks/useZoomBot'
 import { isZoomBotConfigured } from '@/services/zoombot-config'
+import { StopAllButton } from '@/components/zoombot/BotControls'
 import { cn } from '@/lib/utils'
 
 /**
@@ -17,6 +19,7 @@ import { cn } from '@/lib/utils'
  */
 export function LiveMeetingBanner() {
   const navigate = useNavigate()
+  const { isPM } = useAuth()
   const { hasActiveMeeting, botState, activeBots, captions } = useZoomBot()
   const visible = hasActiveMeeting && isZoomBotConfigured()
 
@@ -85,11 +88,18 @@ export function LiveMeetingBanner() {
           )}
         </div>
 
-        {/* Right: count + button */}
-        <div className="ml-auto flex shrink-0 items-center gap-3">
+        {/* Right: count + Stop-all (PM) + View button */}
+        <div className="ml-auto flex shrink-0 items-center gap-2">
           <span className="hidden text-[11px] text-[var(--text-secondary)] tabular-nums md:inline">
             {activeBots.length} bot{activeBots.length === 1 ? '' : 's'} active
           </span>
+          {visible && (
+            <StopAllButton
+              canControl={isPM}
+              hasActive={activeBots.length > 0}
+              variant="ghost"
+            />
+          )}
           <button
             type="button"
             onClick={() => navigate('/meetings/live')}

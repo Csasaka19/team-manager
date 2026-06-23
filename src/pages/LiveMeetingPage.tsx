@@ -36,10 +36,12 @@ import {
 } from 'lucide-react'
 import { toast } from 'sonner'
 import { useNavigate } from 'react-router-dom'
+import { useAuth } from '@/data/auth'
 import { useDocumentTitle } from '@/hooks/useDocumentTitle'
 import { useZoomBot } from '@/hooks/useZoomBot'
 import { useZoomBotConnection } from '@/hooks/useZoomBotConnection'
 import { cn } from '@/lib/utils'
+import { BotActionButton, StopAllButton } from '@/components/zoombot/BotControls'
 import type { LiveCaption, ZoomBot } from '@/services/zoombot-types'
 
 const ALL_ROOMS = '__all__'
@@ -634,6 +636,11 @@ function BotsSection({
   bots: ZoomBot[]
   audioStats: Record<number, number>
 }) {
+  const { isPM } = useAuth()
+  const activeCount = bots.filter(
+    (b) => b.status === 'active' || b.status === 'joining',
+  ).length
+
   if (bots.length === 0) {
     return (
       <section className="rounded-lg border border-dashed border-[var(--border-subtle)] bg-[var(--bg-surface)]/40 p-3 text-center">
@@ -648,14 +655,32 @@ function BotsSection({
       </h2>
       <ul className="mt-2 space-y-2">
         {bots.map((b) => (
-          <BotCard key={b.id} bot={b} audioBytes={audioStats[b.id] ?? 0} />
+          <BotCard
+            key={b.id}
+            bot={b}
+            audioBytes={audioStats[b.id] ?? 0}
+            canControl={isPM}
+          />
         ))}
       </ul>
+      {isPM && (
+        <div className="mt-3 flex justify-end">
+          <StopAllButton canControl={isPM} hasActive={activeCount > 0} />
+        </div>
+      )}
     </section>
   )
 }
 
-function BotCard({ bot, audioBytes }: { bot: ZoomBot; audioBytes: number }) {
+function BotCard({
+  bot,
+  audioBytes,
+  canControl,
+}: {
+  bot: ZoomBot
+  audioBytes: number
+  canControl: boolean
+}) {
   const audioActive = audioBytes > 0 && bot.status === 'active'
   return (
     <li className="rounded-lg border border-[var(--border-subtle)] bg-[var(--bg-surface)] p-3">
@@ -672,9 +697,12 @@ function BotCard({ bot, audioBytes }: { bot: ZoomBot; audioBytes: number }) {
       </div>
       <div className="mt-2 flex items-end justify-between gap-3">
         <AudioActivityVisualizer active={audioActive} />
-        <span className="text-[11px] text-[var(--text-secondary)] tabular-nums">
-          {formatBytes(bot.dataSize)}
-        </span>
+        <div className="flex items-center gap-2">
+          <span className="text-[11px] text-[var(--text-secondary)] tabular-nums">
+            {formatBytes(bot.dataSize)}
+          </span>
+          <BotActionButton bot={bot} canControl={canControl} />
+        </div>
       </div>
     </li>
   )

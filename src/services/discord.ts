@@ -38,6 +38,8 @@ export type DiscordEvent =
   | 'zoombot_meeting_started'
   | 'zoombot_meeting_ended'
   | 'zoombot_bot_error'
+  | 'zoombot_bot_deployed_manual'
+  | 'zoombot_bot_stopped_manual'
 
 export interface DiscordSettings {
   webhookUrl: string
@@ -68,6 +70,11 @@ export const DEFAULT_DISCORD_SETTINGS: DiscordSettings = {
     zoombot_meeting_started: true,
     zoombot_meeting_ended: true,
     zoombot_bot_error: true,
+    // Manual bot-control actions default on — the team usually wants
+    // to know when someone starts or stops a recording. Toggle off in
+    // Settings → Discord Integration if it gets chatty.
+    zoombot_bot_deployed_manual: true,
+    zoombot_bot_stopped_manual: true,
   },
 }
 
@@ -711,6 +718,46 @@ export function buildZoomBotMeetingEndedEmbed(args: {
         value: 'Available in Team Manager → Project Meetings',
         inline: false,
       },
+    ],
+    timestamp: new Date().toISOString(),
+  }
+}
+
+/**
+ * Sent when a PM clicks Deploy on a bot from any surface (live
+ * meeting page, banner, settings). Audited so the team sees who
+ * started a recording.
+ */
+export function buildZoomBotBotDeployedManualEmbed(args: {
+  botName: string
+  botTarget: string
+  actorName: string
+}): DiscordEmbed {
+  return {
+    title: '▶️ Bot Deployed',
+    description: `${args.botName} launched manually`,
+    color: COLOR.green,
+    fields: [
+      { name: 'Target', value: args.botTarget || '—', inline: true },
+      { name: 'By', value: args.actorName || 'unknown', inline: true },
+    ],
+    timestamp: new Date().toISOString(),
+  }
+}
+
+/** Sent when a PM clicks Stop on a bot manually. */
+export function buildZoomBotBotStoppedManualEmbed(args: {
+  botName: string
+  botTarget: string
+  actorName: string
+}): DiscordEmbed {
+  return {
+    title: '⏹️ Bot Stopped',
+    description: `${args.botName} stopped manually`,
+    color: COLOR.sheetsRed,
+    fields: [
+      { name: 'Target', value: args.botTarget || '—', inline: true },
+      { name: 'By', value: args.actorName || 'unknown', inline: true },
     ],
     timestamp: new Date().toISOString(),
   }

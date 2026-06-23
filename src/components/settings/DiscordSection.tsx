@@ -83,6 +83,18 @@ const EVENTS: EventOption[] = [
     description:
       'Fires when a specific bot fails mid-meeting. Useful for catching join failures and disconnects.',
   },
+  {
+    key: 'zoombot_bot_deployed_manual',
+    label: 'Bot deployed manually',
+    description:
+      'Audits when a PM clicks Deploy on a bot from the UI. Includes who pressed the button.',
+  },
+  {
+    key: 'zoombot_bot_stopped_manual',
+    label: 'Bot stopped manually',
+    description:
+      'Audits when a PM clicks Stop. Pairs with the Deploy event to show who controlled the recording.',
+  },
 ]
 
 const WEBHOOK_URL_PATTERN = /^https:\/\/discord(?:app)?\.com\/api\/webhooks\//i
