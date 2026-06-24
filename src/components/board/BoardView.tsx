@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Link, useOutletContext, useSearchParams } from 'react-router-dom'
 import {
   DndContext,
@@ -29,6 +29,10 @@ import { useAuth } from '@/data/auth'
 import { useData } from '@/data/store'
 import { useKeyboardShortcuts } from '@/hooks/useKeyboardShortcuts'
 import { loadBoardView, saveBoardView, type BoardView as BoardViewMode } from '@/lib/board-view'
+import {
+  getProjectMembers,
+  projectHasUnassignedTasks,
+} from '@/lib/project-members'
 import type { LayoutOutletContext } from '@/components/layout/Layout'
 import type { Priority, Task, TaskStatus } from '@/data/types'
 
@@ -442,10 +446,64 @@ export function BoardView({ forcedProjectId }: BoardViewProps) {
     projectId: forcedProjectId ? 'all' : filters.projectId,
   })
   const filtersMatchNothing = userFiltersActive && filteredTasks.length === 0
-  const sortedMembersForFilter = useMemo(
-    () => [...teamMembers].sort((a, b) => a.name.localeCompare(b.name)),
-    [teamMembers],
-  )
+
+  // Effective project scope for the assignee filter dropdown. Embedded
+  // mode pins it; standalone respects the current dropdown selection
+  // (null when "All Projects" is selected → full roster shows).
+  const scopedProjectId =
+    forcedProjectId ?? (filters.projectId === 'all' ? null : filters.projectId)
+
+  // Only people with at least one task in the scoped project. When no
+  // project is scoped, fall back to the full alphabetized roster.
+  const sortedMembersForFilter = useMemo(() => {
+    if (scopedProjectId === null) {
+      return [...teamMembers].sort((a, b) => a.name.localeCompare(b.name))
+    }
+    return getProjectMembers(scopedProjectId, tasks, teamMembers)
+  }, [scopedProjectId, tasks, teamMembers])
+
+  // "Unassigned" only makes sense as an option when an unassigned task
+  // exists in scope. Globally we always show it (legacy behavior).
+  const showUnassignedOption =
+    scopedProjectId === null
+      ? true
+      : projectHasUnassignedTasks(scopedProjectId, tasks)
+
+  // When the project filter changes, reset the assignee selection if
+  // it's no longer reachable. Skipped on first render via a ref so we
+  // never fire a toast at mount time.
+  const prevScopedProjectId = useRef<string | null>(scopedProjectId)
+  useEffect(() => {
+    const previous = prevScopedProjectId.current
+    prevScopedProjectId.current = scopedProjectId
+    if (previous === scopedProjectId) return
+    if (scopedProjectId === null) return // Switched back to All Projects
+
+    const current = filters.assigneeId
+    if (current === 'all') return
+    const stillUnassigned =
+      current === 'unassigned' && showUnassignedOption
+    const stillAvailable =
+      current !== 'unassigned' &&
+      sortedMembersForFilter.some((m) => m.id === current)
+    if (stillUnassigned || stillAvailable) return
+
+    // The selected assignee has no tasks in the new project — reset
+    // and let the user know which member they lost.
+    const droppedName =
+      current === 'unassigned'
+        ? 'Unassigned'
+        : teamMembers.find((m) => m.id === current)?.name ?? current
+    const projectName =
+      projects.find((p) => p.id === scopedProjectId)?.name ?? 'this project'
+    setFilters((f) => ({ ...f, assigneeId: 'all' }))
+    toast(`Filter reset — ${droppedName} has no tasks in ${projectName}.`, {
+      duration: 4000,
+    })
+    // We intentionally only react to project changes. Avoid retrigger
+    // on assignee/teamMembers churn.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [scopedProjectId])
 
   const newTaskProjectId = forcedProjectId
     ? forcedProjectId
@@ -475,6 +533,7 @@ export function BoardView({ forcedProjectId }: BoardViewProps) {
               filters={filters}
               onChange={setFilters}
               hideProjectFilter={Boolean(forcedProjectId)}
+              showUnassignedOption={showUnassignedOption}
             />
           </div>
           <div className="flex shrink-0 items-center gap-2">

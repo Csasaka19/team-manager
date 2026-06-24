@@ -19,6 +19,11 @@ interface FilterBarProps {
    *  The caller is expected to keep filters.projectId pinned to that
    *  project id; the filter bar just stops rendering the picker. */
   hideProjectFilter?: boolean
+  /** Whether to render the "Unassigned" option in the assignee
+   *  dropdown. Default: true (legacy behavior). The Board page sets
+   *  this to false when no task in the current project scope is
+   *  unassigned, so the option doesn't sit there pointing at nothing. */
+  showUnassignedOption?: boolean
 }
 
 const SELECT_CLASS =
@@ -30,6 +35,7 @@ export function FilterBar({
   filters,
   onChange,
   hideProjectFilter = false,
+  showUnassignedOption = true,
 }: FilterBarProps) {
   // Debounced search: the live input value lives locally, propagates after 300ms.
   const [searchInput, setSearchInput] = useState(filters.search)
@@ -81,7 +87,7 @@ export function FilterBar({
           onChange={(e) => onChange({ ...filters, assigneeId: e.target.value })}
         >
           <option value="all">Everyone</option>
-          <option value="unassigned">Unassigned</option>
+          {showUnassignedOption && <option value="unassigned">Unassigned</option>}
           {members.map((m) => (
             <option key={m.id} value={m.id}>
               {m.name}

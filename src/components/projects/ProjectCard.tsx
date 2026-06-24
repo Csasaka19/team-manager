@@ -3,6 +3,7 @@ import { ArrowRight, Radio, Settings, Table2 } from 'lucide-react'
 import { AvatarStack } from '@/components/shared/AvatarStack'
 import { cn } from '@/lib/utils'
 import { isOverdue, relativeTime } from '@/lib/date-utils'
+import { getProjectMembers } from '@/lib/project-members'
 import type { Project, Task, TeamMember } from '@/data/types'
 
 interface ProjectCardProps {
@@ -39,9 +40,11 @@ export function ProjectCard({
   const total = open + done
   const pct = total === 0 ? 0 : Math.round((done / total) * 100)
 
-  const memberNames = project.memberIds
-    .map((id) => members.find((m) => m.id === id)?.name)
-    .filter((n): n is string => Boolean(n))
+  // Show only people with at least one task in this project — not the
+  // full roster — so the avatar stack reflects actual activity.
+  const memberNames = getProjectMembers(project.id, tasks, members).map(
+    (m) => m.name,
+  )
 
   return (
     <article
