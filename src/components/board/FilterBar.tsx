@@ -14,12 +14,23 @@ interface FilterBarProps {
   members: TeamMember[]
   filters: BoardFilters
   onChange: (next: BoardFilters) => void
+  /** Hide the project dropdown — used when the surrounding page already
+   *  scopes the board to a single project (Project Detail's Board tab).
+   *  The caller is expected to keep filters.projectId pinned to that
+   *  project id; the filter bar just stops rendering the picker. */
+  hideProjectFilter?: boolean
 }
 
 const SELECT_CLASS =
   'h-9 rounded-md border border-[var(--border-subtle)] bg-[var(--bg-input)] px-3 text-sm text-[var(--text-primary)] outline-none transition-colors focus:border-[var(--accent-primary)] focus:ring-2 focus:ring-[var(--accent-focus)]'
 
-export function FilterBar({ projects, members, filters, onChange }: FilterBarProps) {
+export function FilterBar({
+  projects,
+  members,
+  filters,
+  onChange,
+  hideProjectFilter = false,
+}: FilterBarProps) {
   // Debounced search: the live input value lives locally, propagates after 300ms.
   const [searchInput, setSearchInput] = useState(filters.search)
 
@@ -42,22 +53,24 @@ export function FilterBar({ projects, members, filters, onChange }: FilterBarPro
 
   return (
     <div className="flex flex-col gap-2 md:flex-row md:flex-wrap md:items-center md:gap-3">
-      <label className="flex flex-col gap-1 md:flex-none">
-        <span className="sr-only">Project</span>
-        <select
-          aria-label="Filter by project"
-          className={SELECT_CLASS}
-          value={filters.projectId}
-          onChange={(e) => onChange({ ...filters, projectId: e.target.value })}
-        >
-          <option value="all">All Projects</option>
-          {projects.map((p) => (
-            <option key={p.id} value={p.id}>
-              {p.name}
-            </option>
-          ))}
-        </select>
-      </label>
+      {!hideProjectFilter && (
+        <label className="flex flex-col gap-1 md:flex-none">
+          <span className="sr-only">Project</span>
+          <select
+            aria-label="Filter by project"
+            className={SELECT_CLASS}
+            value={filters.projectId}
+            onChange={(e) => onChange({ ...filters, projectId: e.target.value })}
+          >
+            <option value="all">All Projects</option>
+            {projects.map((p) => (
+              <option key={p.id} value={p.id}>
+                {p.name}
+              </option>
+            ))}
+          </select>
+        </label>
+      )}
 
       <label className="flex flex-col gap-1 md:flex-none">
         <span className="sr-only">Assignee</span>

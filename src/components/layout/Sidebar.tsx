@@ -22,6 +22,9 @@ interface NavItem {
   to: string
   label: string
   icon: LucideIcon
+  /** When true, the nav item also highlights for paths nested under
+   *  `to` (e.g. /projects/foo lights up the "Projects" entry). */
+  matchNested?: boolean
 }
 
 const dashboardItem: NavItem = { to: '/dashboard', label: 'Dashboard', icon: LayoutDashboard }
@@ -29,9 +32,9 @@ const dashboardItem: NavItem = { to: '/dashboard', label: 'Dashboard', icon: Lay
 const sharedItems: NavItem[] = [
   { to: '/board', label: 'Board', icon: Columns3 },
   { to: '/my-tasks', label: 'My Tasks', icon: CheckSquare },
-  { to: '/projects', label: 'Projects', icon: FolderOpen },
-  { to: '/meetings', label: 'Meetings', icon: CalendarRange },
-  { to: '/atlas', label: 'Atlas', icon: Radio },
+  { to: '/projects', label: 'Projects', icon: FolderOpen, matchNested: true },
+  { to: '/meetings', label: 'Meetings', icon: CalendarRange, matchNested: true },
+  { to: '/atlas', label: 'Atlas', icon: Radio, matchNested: true },
   { to: '/team', label: 'Team', icon: Users },
 ]
 
@@ -114,13 +117,12 @@ function NavItemLink({ item, onNavigate }: NavItemLinkProps) {
           'relative flex items-center gap-3 rounded-md px-3 py-2.5 text-sm font-medium',
           'text-[var(--text-secondary)] hover:text-[var(--text-primary)]',
           'transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent-focus)]',
-          // Icon-only mode (md, not lg): center the icon
           'md:justify-center md:px-2 md:py-2 lg:justify-start lg:px-3 lg:py-2',
           isActive &&
             'bg-[var(--bg-elevated)] text-[var(--text-primary)] before:absolute before:left-0 before:top-1 before:bottom-1 before:w-[2px] before:rounded-r before:bg-[var(--accent-primary)]',
         )
       }
-      end
+      end={!item.matchNested}
     >
       <Icon className="h-5 w-5 shrink-0" aria-hidden="true" />
       <span className="md:hidden lg:inline">{item.label}</span>

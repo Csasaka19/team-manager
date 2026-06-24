@@ -155,7 +155,7 @@ export default function MeetingDetailPage() {
         items={[
           { label: 'Projects', path: '/projects' },
           { label: project.name, path: `/projects/${project.id}` },
-          { label: 'Meetings', path: `/projects/${project.id}` },
+          { label: 'Meetings', path: `/projects/${project.id}?tab=meetings` },
           { label: meeting.title },
         ]}
       />

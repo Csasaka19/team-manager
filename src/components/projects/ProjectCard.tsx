@@ -1,5 +1,5 @@
 import { Link } from 'react-router-dom'
-import { Radio, Settings, Table2 } from 'lucide-react'
+import { ArrowRight, Radio, Settings, Table2 } from 'lucide-react'
 import { AvatarStack } from '@/components/shared/AvatarStack'
 import { cn } from '@/lib/utils'
 import { isOverdue, relativeTime } from '@/lib/date-utils'
@@ -46,7 +46,7 @@ export function ProjectCard({
   return (
     <article
       className={cn(
-        'group relative flex flex-col gap-3 rounded-lg border border-[var(--border-subtle)] bg-[var(--bg-surface)] p-4 transition-all duration-150 hover:border-[var(--border-default)] hover:shadow-[0_2px_8px_rgba(0,0,0,0.2)]',
+        'group relative flex cursor-pointer flex-col gap-3 rounded-lg border border-[var(--border-subtle)] bg-[var(--bg-surface)] p-4 transition-all duration-150 hover:border-[var(--border-default)] hover:shadow-[0_2px_8px_rgba(0,0,0,0.2)]',
         project.archived && 'opacity-70',
       )}
     >
@@ -54,6 +54,10 @@ export function ProjectCard({
         to={`/projects/${project.id}`}
         aria-label={`Open ${project.name}`}
         className="absolute inset-0 z-0 rounded-lg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent-focus)]"
+      />
+      <ArrowRight
+        aria-hidden="true"
+        className="pointer-events-none absolute bottom-3 right-3 h-4 w-4 translate-x-[-4px] text-[var(--text-muted)] opacity-0 transition-all duration-150 group-hover:translate-x-0 group-hover:opacity-100"
       />
 
       <div className="relative z-10 flex items-start justify-between gap-2 pointer-events-none">

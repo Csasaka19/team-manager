@@ -1,31 +1,75 @@
 import { useMemo, useState } from 'react'
-import { Link, Navigate, useParams } from 'react-router-dom'
-import { Columns3, FileText, Plus } from 'lucide-react'
+import {
+  Link,
+  Navigate,
+  useParams,
+  useSearchParams,
+} from 'react-router-dom'
+import { Columns3, FileText, Plus, Settings } from 'lucide-react'
 import { toast } from 'sonner'
+import { BoardView } from '@/components/board/BoardView'
 import { Breadcrumb } from '@/components/Breadcrumb'
 import { MeetingList } from '@/components/meetings/MeetingList'
-import { RecordingsSection } from '@/components/recordings/RecordingsSection'
-import { buildRecordingDateSet } from '@/components/recordings/RecordingsSection'
-import { useZoomBot } from '@/hooks/useZoomBot'
 import {
   MeetingFormModal,
   type MeetingFormValues,
 } from '@/components/meetings/MeetingFormModal'
+import { RecordingsSection } from '@/components/recordings/RecordingsSection'
+import { buildRecordingDateSet } from '@/components/recordings/RecordingsSection'
+import {
+  ProjectFormModal,
+  type ProjectFormValues,
+} from '@/components/projects/ProjectFormModal'
+import { ConfirmModal } from '@/components/shared/ConfirmModal'
+import { AvatarStack } from '@/components/shared/AvatarStack'
 import { useAuth } from '@/data/auth'
 import { useData } from '@/data/store'
 import { useDocumentTitle } from '@/hooks/useDocumentTitle'
+import { useZoomBot } from '@/hooks/useZoomBot'
+import { isOverdue } from '@/lib/date-utils'
 import { cn } from '@/lib/utils'
+
+type Tab = 'board' | 'meetings'
+
+function parseTab(raw: string | null): Tab {
+  return raw === 'meetings' ? 'meetings' : 'board'
+}
+
+type Confirm = { kind: 'archive' | 'delete' } | null
 
 export default function ProjectDetailPage() {
   const { projectId } = useParams<{ projectId: string }>()
   const { isPM } = useAuth()
-  const { projects, meetings, teamMembers, createMeeting, dataSource } = useData()
+  const {
+    projects,
+    tasks,
+    meetings,
+    teamMembers,
+    createMeeting,
+    updateProject,
+    deleteProject,
+    dataSource,
+    snapshotIndex,
+    projectDataSources,
+  } = useData()
   const { recordings } = useZoomBot()
+
+  const [searchParams, setSearchParams] = useSearchParams()
+  const tab: Tab = parseTab(searchParams.get('tab'))
+  const setTab = (next: Tab) => {
+    const sp = new URLSearchParams(searchParams)
+    if (next === 'board') sp.delete('tab')
+    else sp.set('tab', next)
+    setSearchParams(sp, { replace: true })
+  }
+
   const recordingDateSet = useMemo(
     () => buildRecordingDateSet(recordings),
     [recordings],
   )
   const [newMeetingOpen, setNewMeetingOpen] = useState(false)
+  const [settingsOpen, setSettingsOpen] = useState(false)
+  const [confirm, setConfirm] = useState<Confirm>(null)
 
   const project = useMemo(
     () => projects.find((p) => p.id === projectId),
@@ -34,9 +78,39 @@ export default function ProjectDetailPage() {
 
   useDocumentTitle(project?.name ?? 'Project not found')
 
+  const projectTasks = useMemo(
+    () => (projectId ? tasks.filter((t) => t.projectId === projectId) : []),
+    [tasks, projectId],
+  )
   const projectMeetings = useMemo(
-    () => meetings.filter((m) => m.projectId === projectId),
+    () =>
+      projectId ? meetings.filter((m) => m.projectId === projectId) : [],
     [meetings, projectId],
+  )
+  const stats = useMemo(() => {
+    let open = 0
+    let overdue = 0
+    let done = 0
+    for (const t of projectTasks) {
+      if (t.status === 'done') done += 1
+      else {
+        open += 1
+        if (isOverdue(t.dueDate)) overdue += 1
+      }
+    }
+    const total = open + done
+    const pct = total === 0 ? 0 : Math.round((done / total) * 100)
+    return { open, overdue, done, total, pct }
+  }, [projectTasks])
+
+  const memberNames = useMemo(
+    () =>
+      project
+        ? project.memberIds
+            .map((id) => teamMembers.find((m) => m.id === id)?.name)
+            .filter((n): n is string => Boolean(n))
+        : [],
+    [project, teamMembers],
   )
 
   if (!projectId) return <Navigate to="/projects" replace />
@@ -56,107 +130,283 @@ export default function ProjectDetailPage() {
     )
   }
 
-  const handleCreate = async (values: MeetingFormValues) => {
+  const isAtlasManaged =
+    dataSource === 'atlas' && snapshotIndex.projectsById.has(project.id)
+  const isSheetsManaged = projectDataSources.some(
+    (s) => s.projectId === project.id && s.source === 'google-sheets',
+  )
+  const canEditSettings = isPM && !isAtlasManaged
+
+  const handleCreateMeeting = async (values: MeetingFormValues) => {
     await createMeeting({ ...values, projectId })
     setNewMeetingOpen(false)
     toast.success('Meeting created.')
   }
 
+  const handleSaveSettings = async (values: ProjectFormValues) => {
+    await updateProject(project.id, values)
+    setSettingsOpen(false)
+    toast.success('Project updated.')
+  }
+
+  const handleArchive = async () => {
+    setConfirm(null)
+    await updateProject(project.id, { archived: !project.archived })
+    setSettingsOpen(false)
+    toast.success(project.archived ? 'Project unarchived.' : 'Project archived.')
+  }
+
+  const handleDelete = async () => {
+    setConfirm(null)
+    await deleteProject(project.id)
+    setSettingsOpen(false)
+    toast.success('Project deleted.')
+  }
+
+  // Same viewport height claim as BoardPage — only the Board tab needs
+  // it, but applying it unconditionally keeps the layout stable when
+  // switching tabs.
+  const containerClass = cn(
+    'flex h-[calc(100vh-104px)] flex-col gap-4 md:h-[calc(100vh-120px)] md:gap-5',
+  )
+
   return (
-    <div className="space-y-6">
-      <Breadcrumb
-        items={[
-          { label: 'Projects', path: '/projects' },
-          { label: project.name, path: `/projects/${project.id}` },
-          { label: 'Meetings' },
-        ]}
-      />
+    <div className={containerClass}>
+      <div className="shrink-0 space-y-4">
+        <Breadcrumb
+          items={[
+            { label: 'Projects', path: '/projects' },
+            { label: project.name },
+          ]}
+        />
 
-      <header className="flex flex-wrap items-start justify-between gap-3">
-        <div className="min-w-0">
-          <div className="flex items-center gap-2">
-            <span
-              aria-hidden="true"
-              className="h-3 w-3 shrink-0 rounded-full"
-              style={{ backgroundColor: project.color }}
+        <header className="flex flex-wrap items-start justify-between gap-3">
+          <div className="min-w-0">
+            <div className="flex items-center gap-2">
+              <span
+                aria-hidden="true"
+                className="h-3 w-3 shrink-0 rounded-full"
+                style={{ backgroundColor: project.color }}
+              />
+              <h1 className="truncate text-2xl font-semibold text-[var(--text-primary)]">
+                {project.name}
+              </h1>
+              {project.archived && (
+                <span className="rounded-full bg-[var(--bg-elevated)] px-2 py-0.5 text-[10px] font-medium uppercase tracking-[0.5px] text-[var(--text-secondary)]">
+                  Archived
+                </span>
+              )}
+            </div>
+            {project.description && (
+              <p className="mt-1 line-clamp-2 max-w-prose text-sm text-[var(--text-secondary)]">
+                {project.description}
+              </p>
+            )}
+
+            <ProjectStatsRow
+              open={stats.open}
+              overdue={stats.overdue}
+              done={stats.done}
+              pct={stats.pct}
             />
-            <h1 className="truncate text-2xl font-semibold text-[var(--text-primary)]">
-              {project.name}
-            </h1>
           </div>
-          {project.description && (
-            <p className="mt-1 text-sm text-[var(--text-secondary)]">
-              {project.description}
-            </p>
-          )}
-        </div>
-        {isPM && (
-          <button
-            type="button"
-            onClick={() => setNewMeetingOpen(true)}
-            disabled={dataSource === 'atlas'}
-            title={
-              dataSource === 'atlas'
-                ? 'Meetings are extracted from Atlas manifests'
-                : undefined
-            }
-            className="inline-flex h-9 items-center gap-1.5 rounded-md bg-[var(--accent-primary)] px-4 text-sm font-medium text-[var(--text-inverse)] transition-colors hover:bg-[var(--accent-hover)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent-focus)] disabled:cursor-not-allowed disabled:opacity-50 disabled:hover:bg-[var(--accent-primary)]"
-          >
-            <Plus className="h-4 w-4" aria-hidden="true" />
-            New Meeting
-          </button>
-        )}
-      </header>
 
-      {/* Tab strip. Board navigates away to the existing /board route with
-          the project filter pre-selected — see comment in ProjectDetailPage.
-          Meetings stays on this page and renders below. */}
-      <div
-        role="tablist"
-        className="-mb-px flex gap-1 border-b border-[var(--border-subtle)]"
-      >
-        <Link
-          to={`/board?project=${projectId}`}
-          role="tab"
-          aria-selected={false}
-          className={cn(
-            'inline-flex items-center gap-1.5 border-b-2 border-transparent px-3 py-2 text-sm text-[var(--text-secondary)] transition-colors hover:text-[var(--text-primary)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent-focus)]',
-          )}
-        >
-          <Columns3 className="h-3.5 w-3.5" aria-hidden="true" />
-          Board
-        </Link>
-        <span
-          role="tab"
-          aria-selected={true}
-          className="inline-flex items-center gap-1.5 border-b-2 border-[var(--accent-primary)] px-3 py-2 text-sm font-medium text-[var(--text-primary)]"
-        >
-          <FileText className="h-3.5 w-3.5" aria-hidden="true" />
-          Meetings
-          {projectMeetings.length > 0 && (
-            <span className="text-xs text-[var(--text-muted)] tabular-nums">
-              ({projectMeetings.length})
-            </span>
-          )}
-        </span>
+          <div className="flex shrink-0 items-center gap-2">
+            <AvatarStack names={memberNames} max={5} size="md" />
+            {canEditSettings && (
+              <button
+                type="button"
+                onClick={() => setSettingsOpen(true)}
+                aria-label={`${project.name} settings`}
+                className="-m-1 inline-flex h-9 w-9 items-center justify-center rounded-md p-1 text-[var(--text-muted)] transition-colors hover:bg-[var(--bg-elevated)] hover:text-[var(--text-primary)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent-focus)]"
+                title="Project settings"
+              >
+                <Settings className="h-4 w-4" aria-hidden="true" />
+              </button>
+            )}
+            {tab === 'meetings' && isPM && (
+              <button
+                type="button"
+                onClick={() => setNewMeetingOpen(true)}
+                disabled={dataSource === 'atlas'}
+                title={
+                  dataSource === 'atlas'
+                    ? 'Meetings are extracted from Atlas manifests'
+                    : undefined
+                }
+                className="inline-flex h-9 items-center gap-1.5 rounded-md bg-[var(--accent-primary)] px-3 text-sm font-medium text-[var(--text-inverse)] transition-colors hover:bg-[var(--accent-hover)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent-focus)] disabled:cursor-not-allowed disabled:opacity-50 disabled:hover:bg-[var(--accent-primary)]"
+              >
+                <Plus className="h-4 w-4" aria-hidden="true" />
+                New Meeting
+              </button>
+            )}
+          </div>
+        </header>
+
+        <div role="tablist" className="-mb-px flex gap-1 border-b border-[var(--border-subtle)]">
+          <TabButton
+            active={tab === 'board'}
+            onClick={() => setTab('board')}
+            icon={Columns3}
+          >
+            Board
+          </TabButton>
+          <TabButton
+            active={tab === 'meetings'}
+            onClick={() => setTab('meetings')}
+            icon={FileText}
+            count={projectMeetings.length}
+          >
+            Meetings
+          </TabButton>
+        </div>
       </div>
 
-      <MeetingList
-        meetings={projectMeetings}
-        members={teamMembers}
-        hrefForMeeting={(m) => `/projects/${projectId}/meetings/${m.id}`}
-        recordingDates={recordingDateSet}
-      />
-
-      <RecordingsSection />
+      {tab === 'board' ? (
+        <BoardView forcedProjectId={projectId} />
+      ) : (
+        <div className="min-h-0 flex-1 space-y-6 overflow-y-auto">
+          <MeetingList
+            meetings={projectMeetings}
+            members={teamMembers}
+            hrefForMeeting={(m) => `/projects/${projectId}/meetings/${m.id}`}
+            recordingDates={recordingDateSet}
+          />
+          <RecordingsSection />
+        </div>
+      )}
 
       <MeetingFormModal
         open={newMeetingOpen}
         members={teamMembers}
         projectName={project.name}
         onClose={() => setNewMeetingOpen(false)}
-        onSubmit={handleCreate}
+        onSubmit={handleCreateMeeting}
+      />
+
+      <ProjectFormModal
+        open={settingsOpen}
+        mode="edit"
+        initial={project}
+        members={teamMembers}
+        onClose={() => setSettingsOpen(false)}
+        onSubmit={handleSaveSettings}
+        onArchive={
+          isSheetsManaged ? undefined : () => setConfirm({ kind: 'archive' })
+        }
+        onUnarchive={
+          project.archived
+            ? () => void handleArchive()
+            : undefined
+        }
+        onDelete={
+          isSheetsManaged ? undefined : () => setConfirm({ kind: 'delete' })
+        }
+      />
+
+      <ConfirmModal
+        open={confirm?.kind === 'archive'}
+        title={project.archived ? 'Unarchive project?' : 'Archive project?'}
+        message={
+          <>
+            {project.archived ? 'Unarchive' : 'Archive'}{' '}
+            <strong className="text-[var(--text-primary)]">{project.name}</strong>
+            {project.archived
+              ? '? It will return to the active list.'
+              : '? It will be hidden from the main view.'}
+          </>
+        }
+        confirmLabel={project.archived ? 'Unarchive' : 'Archive'}
+        onConfirm={handleArchive}
+        onCancel={() => setConfirm(null)}
+      />
+
+      <ConfirmModal
+        open={confirm?.kind === 'delete'}
+        title="Delete project?"
+        message={
+          <>
+            Delete <strong className="text-[var(--text-primary)]">{project.name}</strong>{' '}
+            and all its tasks? This cannot be undone.
+          </>
+        }
+        confirmLabel="Delete"
+        destructive
+        onConfirm={handleDelete}
+        onCancel={() => setConfirm(null)}
       />
     </div>
+  )
+}
+
+function ProjectStatsRow({
+  open,
+  overdue,
+  done,
+  pct,
+}: {
+  open: number
+  overdue: number
+  done: number
+  pct: number
+}) {
+  return (
+    <div className="mt-3 flex max-w-md flex-wrap items-center gap-x-3 gap-y-2 text-xs tabular-nums text-[var(--text-secondary)]">
+      <span>{open} open</span>
+      {overdue > 0 && (
+        <>
+          <span aria-hidden="true">·</span>
+          <span className="text-[var(--priority-critical)]">{overdue} overdue</span>
+        </>
+      )}
+      <span aria-hidden="true">·</span>
+      <span>{done} done</span>
+      <div
+        className="ml-2 h-1.5 min-w-[80px] flex-1 overflow-hidden rounded-full bg-[var(--bg-elevated)]"
+        role="progressbar"
+        aria-valuemin={0}
+        aria-valuemax={100}
+        aria-valuenow={pct}
+        aria-label={`${pct}% complete`}
+      >
+        <div
+          className="h-full bg-[var(--status-done)] transition-[width] duration-200"
+          style={{ width: `${pct}%` }}
+        />
+      </div>
+    </div>
+  )
+}
+
+interface TabButtonProps {
+  active: boolean
+  onClick: () => void
+  icon: typeof Columns3
+  count?: number
+  children: React.ReactNode
+}
+
+function TabButton({ active, onClick, icon: Icon, count, children }: TabButtonProps) {
+  return (
+    <button
+      type="button"
+      role="tab"
+      aria-selected={active}
+      onClick={onClick}
+      className={cn(
+        '-mb-px inline-flex items-center gap-1.5 rounded-t border-b-2 px-3 py-2 text-sm transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent-focus)]',
+        active
+          ? 'border-[var(--accent-primary)] font-medium text-[var(--text-primary)]'
+          : 'border-transparent text-[var(--text-secondary)] hover:text-[var(--text-primary)]',
+      )}
+    >
+      <Icon className="h-3.5 w-3.5" aria-hidden="true" />
+      {children}
+      {count !== undefined && count > 0 && (
+        <span className="text-xs text-[var(--text-muted)] tabular-nums">
+          ({count})
+        </span>
+      )}
+    </button>
   )
 }
