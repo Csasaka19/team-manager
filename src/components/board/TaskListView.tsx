@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { useNavigate } from 'react-router-dom'
+import { useTaskPanel } from '@/data/task-panel'
 import {
   ArrowDown,
   ArrowUp,
@@ -59,7 +59,7 @@ const COMPLETING_FADE_MS = 1_000
 const CELL_FLASH_MS = 600
 
 export function TaskListView({ tasks, projects, members }: TaskListViewProps) {
-  const navigate = useNavigate()
+  const { openTask } = useTaskPanel()
   const { currentUser, isPM } = useAuth()
   const { updateTask, columnOrder, statusLabels } = useData()
 
@@ -253,7 +253,7 @@ export function TaskListView({ tasks, projects, members }: TaskListViewProps) {
             return (
               <tr
                 key={task.id}
-                onClick={() => navigate(`/tasks/${task.id}`)}
+                onClick={() => openTask(task.id)}
                 className={cn(
                   'group h-10 cursor-pointer border-b border-[var(--border-subtle)] transition-opacity duration-700 last:border-b-0 hover:bg-[var(--bg-base)]',
                   // Done rows fade to muted opacity — UNLESS we're still in

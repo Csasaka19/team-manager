@@ -23,6 +23,7 @@ import { DueDatePicker } from '@/components/shared/DueDatePicker'
 import { RecordingsSection } from '@/components/recordings/RecordingsSection'
 import { useAuth } from '@/data/auth'
 import { useData } from '@/data/store'
+import { useTaskPanel } from '@/data/task-panel'
 import { useDocumentTitle } from '@/hooks/useDocumentTitle'
 import { formatAbsoluteDateTime, relativeTime } from '@/lib/date-utils'
 import { cn } from '@/lib/utils'
@@ -56,6 +57,7 @@ export default function MeetingDetailPage() {
     meetingId: string
   }>()
   const navigate = useNavigate()
+  const { openTask } = useTaskPanel()
   const { currentUser, isPM } = useAuth()
   const {
     meetings,
@@ -141,7 +143,7 @@ export default function MeetingDetailPage() {
       toast.success('Converted to task.', {
         action: {
           label: 'Open',
-          onClick: () => navigate(`/tasks/${task.id}`),
+          onClick: () => openTask(task.id),
         },
       })
     } catch {
@@ -209,7 +211,7 @@ export default function MeetingDetailPage() {
           void safeUpdate('action items', { actionItems })
         }
         onConvert={handleConvert}
-        onOpenTask={(taskId) => navigate(`/tasks/${taskId}`)}
+        onOpenTask={(taskId) => openTask(taskId)}
       />
 
       <LinksSection

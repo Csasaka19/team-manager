@@ -1,7 +1,7 @@
 import { useMemo } from 'react'
-import { Link } from 'react-router-dom'
 import { AlertTriangle, Check } from 'lucide-react'
 import { Avatar } from '@/components/shared/Avatar'
+import { useTaskPanel } from '@/data/task-panel'
 import { isOverdue, now, startOfDay, startOfWeek } from '@/lib/date-utils'
 import { cn } from '@/lib/utils'
 import type { Priority, Task, TeamMember } from '@/data/types'
@@ -210,10 +210,12 @@ function MiniTaskCard({
   assignee: TeamMember | null
   isPast: boolean
 }) {
+  const { openTask } = useTaskPanel()
   return (
-    <Link
-      to={`/tasks/${task.id}`}
-      className="flex items-center gap-1.5 rounded border border-[var(--border-subtle)] bg-[var(--bg-base)] px-2 py-1.5 transition-colors hover:border-[var(--border-default)] hover:bg-[var(--bg-elevated)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent-focus)]"
+    <button
+      type="button"
+      onClick={() => openTask(task.id)}
+      className="flex w-full items-center gap-1.5 rounded border border-[var(--border-subtle)] bg-[var(--bg-base)] px-2 py-1.5 text-left transition-colors hover:border-[var(--border-default)] hover:bg-[var(--bg-elevated)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent-focus)]"
     >
       <span
         aria-hidden="true"
@@ -241,6 +243,6 @@ function MiniTaskCard({
           —
         </span>
       )}
-    </Link>
+    </button>
   )
 }

@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { Link } from 'react-router-dom'
+import { useTaskPanel } from '@/data/task-panel'
 import { AlertTriangle, Check, ChevronDown, ChevronRight } from 'lucide-react'
 import { PriorityBadge } from '@/components/shared/PriorityBadge'
 import { cn } from '@/lib/utils'
@@ -30,6 +30,7 @@ export function TaskRow({
   viaSubtaskOnly = false,
 }: TaskRowProps) {
   const { toggleSubtask, updateTask } = useData()
+  const { openTask } = useTaskPanel()
   const [expanded, setExpanded] = useState(false)
   const [busy, setBusy] = useState(false)
   const [subtaskBusy, setSubtaskBusy] = useState<string | null>(null)
@@ -132,16 +133,19 @@ export function TaskRow({
             </p>
           )}
           <div className="flex flex-wrap items-baseline gap-x-3 gap-y-1">
-            <Link
-              to={`/tasks/${task.id}`}
-              onClick={(e) => e.stopPropagation()}
+            <button
+              type="button"
+              onClick={(e) => {
+                e.stopPropagation()
+                openTask(task.id)
+              }}
               className={cn(
-                'truncate text-[15px] font-medium text-[var(--text-primary)] underline-offset-2 hover:underline focus-visible:underline focus-visible:outline-none',
+                'truncate text-left text-[15px] font-medium text-[var(--text-primary)] underline-offset-2 hover:underline focus-visible:underline focus-visible:outline-none',
                 completed && 'line-through',
               )}
             >
               {task.title}
-            </Link>
+            </button>
             {project && (
               <span className="text-xs text-[var(--text-secondary)]">
                 <span

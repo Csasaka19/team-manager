@@ -1,5 +1,5 @@
 import { AlertTriangle, Check, CloudOff, RotateCw } from 'lucide-react'
-import { useNavigate } from 'react-router-dom'
+import { useTaskPanel } from '@/data/task-panel'
 import { useDraggable } from '@dnd-kit/core'
 import { CSS } from '@dnd-kit/utilities'
 import { Avatar } from '@/components/shared/Avatar'
@@ -62,7 +62,7 @@ export function TaskCard({
   isLocallyModified = false,
   atlasOriginalStatusLabel = null,
 }: TaskCardProps) {
-  const navigate = useNavigate()
+  const { openTask } = useTaskPanel()
   // Drag is disabled site-wide while multi-select is active so a stray
   // pointer-down on a card doesn't grab it instead of toggling selection.
   const dragDisabled = !draggable || overlay || selectionActive
@@ -97,7 +97,7 @@ export function TaskCard({
       return
     }
     onSelect?.(task.id)
-    navigate(`/tasks/${task.id}`)
+    openTask(task.id)
   }
 
   const style: React.CSSProperties = overlay
@@ -128,7 +128,7 @@ export function TaskCard({
                 // Don't trigger nav from the drag activation keys; only on Enter without modifier-drag.
                 if (e.key === 'Enter') {
                   e.preventDefault()
-                  navigate(`/tasks/${task.id}`)
+                  openTask(task.id)
                 }
               }
             }

@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { useNavigate } from 'react-router-dom'
+import { useTaskPanel } from '@/data/task-panel'
 import { toast } from 'sonner'
 import {
   AlertTriangle,
@@ -75,7 +75,7 @@ export function NotificationBell() {
     () => new Set(),
   )
   const wrapperRef = useRef<HTMLDivElement>(null)
-  const navigate = useNavigate()
+  const { openTask } = useTaskPanel()
   // Tracks the newest notification ID we've seen so we can chime exactly
   // once per new arrival without firing on initial mount.
   const prevNewestId = useRef<string | null>(null)
@@ -180,7 +180,7 @@ export function NotificationBell() {
   const handleGoToTask = (taskId: string, notificationIds: string[]) => {
     for (const id of notificationIds) markNotificationRead(id)
     setOpen(false)
-    navigate(`/tasks/${taskId}`)
+    openTask(taskId)
   }
 
   const handleAccept = (n: Notification, taskTitle: string | undefined) => {

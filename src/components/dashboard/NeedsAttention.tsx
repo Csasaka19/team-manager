@@ -1,5 +1,5 @@
-import { Link } from 'react-router-dom'
 import { CheckCircle2 } from 'lucide-react'
+import { useTaskPanel } from '@/data/task-panel'
 import { cn } from '@/lib/utils'
 
 export type AttentionItem =
@@ -55,6 +55,7 @@ const VARIANT_LABEL: Record<AttentionItem['kind'], string> = {
 }
 
 export function NeedsAttention({ items }: NeedsAttentionProps) {
+  const { openTask } = useTaskPanel()
   if (items.length === 0) {
     return (
       <div className="flex flex-col items-center justify-center rounded-lg border border-[var(--border-subtle)] bg-[var(--bg-surface)] px-6 py-10 text-center">
@@ -79,10 +80,11 @@ export function NeedsAttention({ items }: NeedsAttentionProps) {
             idx !== items.length - 1 && 'border-b border-[var(--border-subtle)]',
           )}
         >
-          <Link
-            to={`/tasks/${item.taskId}`}
+          <button
+            type="button"
+            onClick={() => openTask(item.taskId)}
             className={cn(
-              'group flex items-start gap-3 border-l-[3px] px-3 py-3 transition-colors hover:bg-[var(--bg-elevated)] md:px-4',
+              'group flex w-full items-start gap-3 border-l-[3px] px-3 py-3 text-left transition-colors hover:bg-[var(--bg-elevated)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent-focus)] md:px-4',
               VARIANT_BORDER[item.kind],
             )}
           >
@@ -92,7 +94,7 @@ export function NeedsAttention({ items }: NeedsAttentionProps) {
             <div className="min-w-0 flex-1">
               <ItemContent item={item} />
             </div>
-          </Link>
+          </button>
         </li>
       ))}
     </ul>

@@ -10,8 +10,10 @@ import { OnboardingTour } from '@/components/onboarding/OnboardingTour'
 import { ErrorBoundary } from '@/components/shared/ErrorBoundary'
 import { ShortcutsButton } from '@/components/shared/ShortcutsButton'
 import { ShortcutsHelp } from '@/components/shared/ShortcutsHelp'
+import { TaskDetailPanel } from '@/components/TaskDetailPanel'
 import { useAuth } from '@/data/auth'
 import { useData } from '@/data/store'
+import { TaskPanelProvider, useTaskPanel } from '@/data/task-panel'
 import { useKeyboardShortcuts } from '@/hooks/useKeyboardShortcuts'
 import { daysBetween, isOverdue, now } from '@/lib/date-utils'
 import {
@@ -45,7 +47,21 @@ export interface LayoutOutletContext {
 }
 
 export function Layout() {
+  // TaskPanelProvider must wrap any code that uses useTaskPanel — that
+  // includes our own LayoutBody (the "open task after create" toast)
+  // and every page below. Keeping the provider here, just above the
+  // body, scopes the panel to authenticated routes and lets its
+  // useLocation() see real route changes.
+  return (
+    <TaskPanelProvider>
+      <LayoutBody />
+    </TaskPanelProvider>
+  )
+}
+
+function LayoutBody() {
   const navigate = useNavigate()
+  const { openTask } = useTaskPanel()
   const location = useLocation()
   const [searchParams] = useSearchParams()
   const { isPM, currentUser } = useAuth()
@@ -170,13 +186,13 @@ export function Layout() {
     setCreateOpen(false)
 
     if (openAfter) {
-      navigate(`/tasks/${created.id}`)
+      openTask(created.id)
       toast.success('Task created.')
     } else {
       toast.success('Task created.', {
         action: {
           label: 'Open',
-          onClick: () => navigate(`/tasks/${created.id}`),
+          onClick: () => openTask(created.id),
         },
       })
     }
@@ -293,6 +309,8 @@ export function Layout() {
       {currentUser && !anyModalOpen && (
         <ShortcutsButton onClick={() => setHelpOpen(true)} />
       )}
+
+      <TaskDetailPanel />
     </div>
   )
 }

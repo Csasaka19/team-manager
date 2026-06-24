@@ -15,10 +15,10 @@
  * the same interaction grammar.
  */
 
-import { Link } from 'react-router-dom'
 import { AlertTriangle } from 'lucide-react'
 import { PriorityBadge } from '@/components/shared/PriorityBadge'
 import { StatusPill } from '@/components/shared/StatusPill'
+import { useTaskPanel } from '@/data/task-panel'
 import { cn } from '@/lib/utils'
 import { DUE_TONE_CLASS, formatRelativeDueDate } from '@/lib/date-utils'
 import type { Project, Task } from '@/data/types'
@@ -31,17 +31,19 @@ interface BaseProps {
 // ── Card (used inside the expanded member view) ─────────────────────────
 
 export function TeamTaskCard({ task, project }: BaseProps) {
+  const { openTask } = useTaskPanel()
   const due = formatRelativeDueDate(task.dueDate)
   const overdue = task.status !== 'done' && (due?.overdue ?? false)
   const completed = task.subtasks.filter((s) => s.done).length
   const total = task.subtasks.length
 
   return (
-    <Link
-      to={`/tasks/${encodeURIComponent(task.id)}`}
+    <button
+      type="button"
+      onClick={() => openTask(task.id)}
       aria-label={`Open task ${task.title}`}
       className={cn(
-        'group relative block rounded-lg border border-[var(--border-subtle)] bg-[var(--bg-surface)] p-3 text-left transition-[border-color,box-shadow] duration-150',
+        'group relative block w-full rounded-lg border border-[var(--border-subtle)] bg-[var(--bg-surface)] p-3 text-left transition-[border-color,box-shadow] duration-150',
         'hover:border-[var(--border-default)] hover:shadow-[0_2px_8px_rgba(0,0,0,0.2)]',
         'focus-visible:border-[var(--accent-primary)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent-focus)]',
         // Same 2px red left border as the board card when overdue.
@@ -114,22 +116,24 @@ export function TeamTaskCard({ task, project }: BaseProps) {
           </span>
         )}
       </footer>
-    </Link>
+    </button>
   )
 }
 
 // ── Single-row (used inside the collapsed member preview) ───────────────
 
 export function TeamTaskRow({ task, project }: BaseProps) {
+  const { openTask } = useTaskPanel()
   const due = formatRelativeDueDate(task.dueDate)
   const overdue = task.status !== 'done' && (due?.overdue ?? false)
 
   return (
-    <Link
-      to={`/tasks/${encodeURIComponent(task.id)}`}
+    <button
+      type="button"
+      onClick={() => openTask(task.id)}
       aria-label={`Open task ${task.title}`}
       className={cn(
-        'group flex items-center gap-2 rounded-md border border-[var(--border-subtle)] bg-[var(--bg-surface)] px-2.5 py-1.5 text-left transition-[border-color,box-shadow] duration-150',
+        'group flex w-full items-center gap-2 rounded-md border border-[var(--border-subtle)] bg-[var(--bg-surface)] px-2.5 py-1.5 text-left transition-[border-color,box-shadow] duration-150',
         'hover:border-[var(--border-default)] hover:shadow-[0_1px_4px_rgba(0,0,0,0.15)]',
         'focus-visible:border-[var(--accent-primary)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent-focus)]',
         overdue && 'border-l-2 border-l-[var(--priority-critical)] pl-2',
@@ -166,6 +170,6 @@ export function TeamTaskRow({ task, project }: BaseProps) {
         </span>
       )}
       <StatusPill status={task.status} className="shrink-0" />
-    </Link>
+    </button>
   )
 }

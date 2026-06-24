@@ -18,6 +18,7 @@ import {
 } from 'lucide-react'
 import { StatusPill } from '@/components/shared/StatusPill'
 import { useAuth } from '@/data/auth'
+import { useTaskPanel } from '@/data/task-panel'
 import { useData } from '@/data/store'
 import { useFocusTrap } from '@/hooks/useFocusTrap'
 import { SHORTCUTS, type ShortcutKey } from '@/lib/shortcuts'
@@ -115,6 +116,7 @@ type Hit = ActionHit | TaskHit | ProjectHit | MeetingHit
 
 export function CommandPalette({ open, onClose, onCreateTask }: CommandPaletteProps) {
   const navigate = useNavigate()
+  const { openTask } = useTaskPanel()
   const { isPM, logout } = useAuth()
   const { tasks, projects, teamMembers, meetings } = useData()
 
@@ -281,7 +283,7 @@ export function CommandPalette({ open, onClose, onCreateTask }: CommandPalettePr
 
   const selectHit = (hit: Hit) => {
     if (hit.kind === 'task') {
-      navigate(`/tasks/${hit.task.id}`)
+      openTask(hit.task.id)
       onClose()
     } else if (hit.kind === 'project') {
       navigate(`/projects/${hit.project.id}`)

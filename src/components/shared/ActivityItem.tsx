@@ -1,5 +1,5 @@
 import { Fragment, useState } from 'react'
-import { Link } from 'react-router-dom'
+import { useTaskPanel } from '@/data/task-panel'
 import {
   ArrowRight,
   Calendar,
@@ -63,6 +63,7 @@ export function ActivityItem({
   members,
   variant = 'feed',
 }: ActivityItemProps) {
+  const { openTask } = useTaskPanel()
   const actor = memberById.get(activity.actorId)
   const actorName = actor?.name ?? 'Someone'
   const task = activity.taskId ? taskById.get(activity.taskId) : undefined
@@ -118,12 +119,14 @@ export function ActivityItem({
   // (project_created, member_*, task_deleted) render as plain rows.
   if (variant === 'feed' && task) {
     return (
-      <Link
-        to={`/tasks/${task.id}`}
-        className="block transition-colors hover:bg-[var(--bg-elevated)]"
+      <button
+        type="button"
+        onClick={() => openTask(task.id)}
+        aria-label={`Open ${task.title}`}
+        className="block w-full text-left transition-colors hover:bg-[var(--bg-elevated)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent-focus)]"
       >
         {row}
-      </Link>
+      </button>
     )
   }
   if (variant === 'feed' && !task) {
