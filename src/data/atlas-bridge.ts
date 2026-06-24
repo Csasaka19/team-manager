@@ -25,11 +25,15 @@ import {
   fetchAtlasTasks,
 } from '@/services/atlas/client'
 import {
+  UNASSIGNED_PROJECT_ID,
+  buildProjectResolver,
+  buildUnassignedProject,
   extractTeamMembers,
   mapAtlasFeedItemToActivity,
   mapAtlasManifestToMeeting,
   mapAtlasProjectToProject,
   mapAtlasTaskToTask,
+  normalizeAtlasSlug,
   populateProjectMemberIds,
 } from '@/services/atlas-mapper'
 import type {
@@ -105,18 +109,23 @@ export async function loadFromAtlas(
   // results to every downstream mapper. Exclusion cascades: tasks for an
   // excluded project are dropped, and same-project summaries/manifests
   // are suppressed too so we don't render orphaned data.
-  const excluded = new Set(opts.excludeProjectIds ?? [])
+  // Normalize on both sides so a caller passing "Contracting-com" still
+  // matches an API value of "contracting-com".
+  const excluded = new Set(
+    (opts.excludeProjectIds ?? []).map((s) => normalizeAtlasSlug(s)),
+  )
+  const isExcluded = (raw: string) => excluded.has(normalizeAtlasSlug(raw))
   const projectsRaw = projectsRawAll
-    ? projectsRawAll.filter((p) => !excluded.has(p.slug))
+    ? projectsRawAll.filter((p) => !isExcluded(p.slug))
     : projectsRawAll
   const tasksRaw = tasksRawAll
-    ? tasksRawAll.filter((t) => !excluded.has(t.project))
+    ? tasksRawAll.filter((t) => !isExcluded(t.project))
     : tasksRawAll
   const feedRaw = feedRawAll
-    ? feedRawAll.filter((f) => !excluded.has(f.project))
+    ? feedRawAll.filter((f) => !isExcluded(f.project))
     : feedRawAll
   const summariesRaw = summariesRawAll
-    ? summariesRawAll.filter((s) => !excluded.has(s.project))
+    ? summariesRawAll.filter((s) => !isExcluded(s.project))
     : summariesRawAll
 
   // Manifests are 1:1 with summary day-files. Issue them in parallel only
@@ -140,16 +149,53 @@ export async function loadFromAtlas(
     }
   }
 
-  const tasks = (tasksRaw ?? []).map((t) => mapAtlasTaskToTask(t, t.project, { now }))
+  // Resolver maps a raw task.project (possibly an alias, possibly
+  // miscased) onto the canonical lowercased slug we use as Project.id.
+  // Tasks / activities / meetings that don't resolve get routed to a
+  // synthetic Unassigned project so they never disappear silently.
+  const resolveProjectId = buildProjectResolver(projectsRaw ?? [])
+  const resolvedTasks = (tasksRaw ?? []).map((task) => ({
+    task,
+    projectId: resolveProjectId(task.project) ?? UNASSIGNED_PROJECT_ID,
+  }))
+
+  const tasks = resolvedTasks.map(({ task, projectId }) =>
+    mapAtlasTaskToTask(task, projectId, { now }),
+  )
+  const activities = (feedRaw ?? []).map((f) =>
+    mapAtlasFeedItemToActivity(f, { now, resolveProjectId }),
+  )
+  const meetings = manifests.map((m) =>
+    mapAtlasManifestToMeeting(m, { now, resolveProjectId }),
+  )
+
+  const orphanTaskCount = tasks.filter(
+    (t) => t.projectId === UNASSIGNED_PROJECT_ID,
+  ).length
+  const hasOrphans =
+    orphanTaskCount > 0 ||
+    activities.some((a) => a.projectId === UNASSIGNED_PROJECT_ID) ||
+    meetings.some((m) => m.projectId === UNASSIGNED_PROJECT_ID)
+
+  if (orphanTaskCount > 0) {
+    const sample = resolvedTasks.find(
+      (rt) => rt.projectId === UNASSIGNED_PROJECT_ID,
+    )
+    // Log once per snapshot so silent drift is visible in dev tools.
+    // eslint-disable-next-line no-console
+    console.warn(
+      `[atlas-bridge] ${orphanTaskCount} Atlas task(s) didn't match any project slug or alias — routed to "${UNASSIGNED_PROJECT_ID}". First orphan: ${sample?.task.id} (project="${sample?.task.project}")`,
+    )
+  }
+
   let projects: Project[] = (projectsRaw ?? []).map((p) =>
     mapAtlasProjectToProject(p, { now }),
   )
-  if (tasksRaw) projects = populateProjectMemberIds(projects, tasksRaw)
+  if (hasOrphans) {
+    projects = [...projects, buildUnassignedProject({ now })]
+  }
+  if (tasksRaw) projects = populateProjectMemberIds(projects, resolvedTasks)
   const teamMembers = extractTeamMembers(tasksRaw ?? [], { manifests, now })
-  const activities = (feedRaw ?? []).map((f) =>
-    mapAtlasFeedItemToActivity(f, { now }),
-  )
-  const meetings = manifests.map((m) => mapAtlasManifestToMeeting(m, { now }))
 
   return {
     projects,

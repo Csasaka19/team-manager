@@ -68,6 +68,77 @@ const PROJECT_PALETTE = [
  *  will render "Atlas" wherever a TeamMember with this id isn't found. */
 export const ATLAS_SYSTEM_ACTOR = 'atlas'
 
+/** Synthetic project id for tasks whose `project` field doesn't resolve
+ *  to any known Atlas project (case mismatch, alias drift, deleted
+ *  parent project). Kept obviously-synthetic so it can never collide
+ *  with a real slug. The `buildUnassignedProject` helper produces a
+ *  full Project object using this id. */
+export const UNASSIGNED_PROJECT_ID = '__atlas_unassigned__'
+
+/** Normalize an Atlas slug so case differences between the `/projects`
+ *  and `/tasks` payloads don't strand tasks. Trim + lowercase — that
+ *  matches Atlas's documented slug shape ("trp", "contracting-com")
+ *  and is a no-op when the API is already consistent. */
+export function normalizeAtlasSlug(slug: string | undefined | null): string {
+  return (slug ?? '').trim().toLowerCase()
+}
+
+/**
+ * Build a resolver that turns a raw `task.project` value into the
+ * canonical (lowercased) project slug used as `Project.id`. The
+ * resolver also consults each project's `aliases[]` so a task that
+ * references a project by alias (e.g. "trip" → "trp") still lands in
+ * the right bucket. Returns `null` when no project matches; the
+ * caller decides whether to drop the task or route it to the
+ * unassigned bucket.
+ */
+export function buildProjectResolver(
+  projects: Array<{ slug: string; aliases?: string[] }>,
+): (rawTaskProject: string | undefined | null) => string | null {
+  const bySlug = new Map<string, string>()
+  for (const p of projects) {
+    const canonical = normalizeAtlasSlug(p.slug)
+    if (!canonical) continue
+    bySlug.set(canonical, canonical)
+    for (const alias of p.aliases ?? []) {
+      const norm = normalizeAtlasSlug(alias)
+      if (!norm) continue
+      // Don't let an alias from one project shadow another project's
+      // canonical slug if they collide — canonical wins.
+      if (bySlug.has(norm) && bySlug.get(norm) !== canonical) continue
+      bySlug.set(norm, canonical)
+    }
+  }
+  return (raw) => {
+    const norm = normalizeAtlasSlug(raw)
+    if (!norm) return null
+    return bySlug.get(norm) ?? null
+  }
+}
+
+/**
+ * Synthetic project used as a catch-all for tasks whose `project`
+ * doesn't match any known Atlas project. Without this, orphaned tasks
+ * silently disappear from the board — the user assumes the API
+ * dropped them.
+ */
+export function buildUnassignedProject(
+  options: { now?: string } = {},
+): Project {
+  const now = options.now ?? new Date().toISOString()
+  return {
+    id: UNASSIGNED_PROJECT_ID,
+    name: 'Unassigned Tasks',
+    description: "Tasks not associated with a specific Atlas project.",
+    color: '#6B7280', // neutral gray
+    memberIds: [],
+    archived: false,
+    createdAt: now,
+    updatedAt: now,
+    createdBy: ATLAS_SYSTEM_ACTOR,
+  }
+}
+
 /** Edit this to give known team members real display names and roles when
  *  their Atlas slug shows up. Any slug not listed gets an auto-generated
  *  display name (title-cased slug) and the `'member'` role. */
@@ -128,11 +199,12 @@ export function mapAtlasProjectToProject(
   options: { now?: string } = {},
 ): Project {
   const now = options.now ?? new Date().toISOString()
+  const id = normalizeAtlasSlug(atlas.slug)
   return {
-    id: atlas.slug,
-    name: atlas.name && atlas.name.trim() ? atlas.name : slugToTitle(atlas.slug),
+    id,
+    name: atlas.name && atlas.name.trim() ? atlas.name : slugToTitle(id),
     description: atlas.description ?? '',
-    color: pickProjectColor(atlas.slug),
+    color: pickProjectColor(id),
     memberIds: [],
     archived: false,
     createdAt: now,
@@ -146,16 +218,20 @@ export function mapAtlasProjectToProject(
  * Pure function — returns a new array, never mutates the inputs. Member
  * ids are deduplicated and stable (sorted alphabetically) so React keys
  * stay consistent across reruns.
+ *
+ * Callers must hand in pre-resolved (raw task, canonical projectId)
+ * pairs so orphaned tasks attribute their members to the synthetic
+ * unassigned project rather than back to a non-existent slug.
  */
 export function populateProjectMemberIds(
   projects: Project[],
-  tasks: AtlasTask[],
+  resolvedTasks: ReadonlyArray<{ task: AtlasTask; projectId: string }>,
 ): Project[] {
   const byProject = new Map<string, Set<string>>()
-  for (const t of tasks) {
-    const set = byProject.get(t.project) ?? new Set<string>()
-    for (const slug of allAssigneeSlugs(t)) set.add(slug)
-    byProject.set(t.project, set)
+  for (const { task, projectId } of resolvedTasks) {
+    const set = byProject.get(projectId) ?? new Set<string>()
+    for (const slug of allAssigneeSlugs(task)) set.add(slug)
+    byProject.set(projectId, set)
   }
   return projects.map((p) => {
     const members = byProject.get(p.id)
@@ -264,10 +340,22 @@ export function extractTeamMembers(
  */
 export function mapAtlasManifestToMeeting(
   manifest: AtlasManifest,
-  options: { now?: string } = {},
+  options: {
+    now?: string
+    /** Optional resolver so the meeting's `projectId` matches the
+     *  canonical Project.id even when the manifest references the
+     *  project by alias or in a different case. */
+    resolveProjectId?: (raw: string) => string | null
+  } = {},
 ): Meeting {
   const now = options.now ?? new Date().toISOString()
   const createdAt = manifest.processed_at ?? toIsoDate(manifest.date) ?? now
+  // Mirrors the activity mapper: if the bridge supplied a resolver,
+  // unmatched manifests route to UNASSIGNED rather than to a stable
+  // but unmatched slug that would silently orphan the meeting.
+  const resolvedProject = options.resolveProjectId
+    ? options.resolveProjectId(manifest.project) ?? UNASSIGNED_PROJECT_ID
+    : normalizeAtlasSlug(manifest.project) || UNASSIGNED_PROJECT_ID
 
   const attendees = new Set<string>()
   for (const t of manifest.extractions.tasks) {
@@ -296,9 +384,9 @@ export function mapAtlasManifestToMeeting(
   }))
 
   return {
-    id: manifest.manifest_id ?? `${manifest.project}-${manifest.date}`,
+    id: manifest.manifest_id ?? `${resolvedProject}-${manifest.date}`,
     title: deriveMeetingTitle(manifest),
-    projectId: manifest.project,
+    projectId: resolvedProject || UNASSIGNED_PROJECT_ID,
     date: manifest.date,
     startTime: null,
     duration: null,
@@ -332,12 +420,27 @@ export function mapAtlasManifestToMeeting(
  */
 export function mapAtlasFeedItemToActivity(
   feedItem: AtlasFeedItem,
-  options: { now?: string } = {},
+  options: {
+    now?: string
+    /** Same resolver the bridge uses for tasks. When supplied, the
+     *  activity's projectId lands on the canonical slug (or
+     *  UNASSIGNED_PROJECT_ID if it can't be resolved) instead of the
+     *  raw feed value — keeps feed cross-links consistent with tasks. */
+    resolveProjectId?: (raw: string) => string | null
+  } = {},
 ): Activity {
   const now = options.now ?? new Date().toISOString()
   warnUnknownFeedFields(feedItem)
 
   const createdAt = toIsoDate(feedItem.date) ?? now
+  // If a resolver is supplied (atlas-bridge path), unmatched activities
+  // route to UNASSIGNED — same treatment as orphaned tasks so they
+  // never disappear. Without a resolver (callers that haven't loaded
+  // the project list yet), keep the normalized raw value as a
+  // best-effort id.
+  const projectId = options.resolveProjectId
+    ? options.resolveProjectId(feedItem.project) ?? UNASSIGNED_PROJECT_ID
+    : normalizeAtlasSlug(feedItem.project) || UNASSIGNED_PROJECT_ID
   const activity: Activity = {
     id: `atlas-feed-${feedItem.source_slug}`,
     taskId: null,
@@ -346,7 +449,7 @@ export function mapAtlasFeedItemToActivity(
     content: feedItem.content,
     mentions: [],
     createdAt,
-    projectId: feedItem.project,
+    projectId,
   }
   return activity
 }
