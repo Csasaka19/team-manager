@@ -12,6 +12,7 @@ import {
 import { useAuth } from '@/data/auth'
 import { useData } from '@/data/store'
 import { useDocumentTitle } from '@/hooks/useDocumentTitle'
+import { useScrollRestore } from '@/hooks/useScrollRestore'
 import { cn } from '@/lib/utils'
 import type { Project, TeamMember } from '@/data/types'
 
@@ -20,6 +21,7 @@ type Confirm = { kind: 'archive' | 'delete'; project: Project } | null
 
 export default function ProjectsPage() {
   useDocumentTitle('Projects')
+  useScrollRestore()
   const { isPM } = useAuth()
   const {
     projects,

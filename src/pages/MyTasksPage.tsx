@@ -9,6 +9,7 @@ import { SkeletonCard, SkeletonLine } from '@/components/shared/Skeleton'
 import { useAuth } from '@/data/auth'
 import { useData } from '@/data/store'
 import { useDocumentTitle } from '@/hooks/useDocumentTitle'
+import { useScrollRestore } from '@/hooks/useScrollRestore'
 import type { Project, Task } from '@/data/types'
 import {
   daysBetween,
@@ -30,6 +31,7 @@ const PRIORITY_RANK: Record<Task['priority'], number> = {
 
 export default function MyTasksPage() {
   useDocumentTitle('My Tasks')
+  useScrollRestore()
   const { currentUser } = useAuth()
   const { tasks, projects, isInitialLoading } = useData()
   const [showCompleted, setShowCompleted] = useState(false)

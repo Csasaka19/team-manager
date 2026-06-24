@@ -1,7 +1,8 @@
 import { useCallback } from 'react'
-import { Link, useNavigate, useParams } from 'react-router-dom'
-import { ArrowLeft, Calendar, Flag, GitBranch, Inbox, ListChecks, Users } from 'lucide-react'
+import { useParams } from 'react-router-dom'
+import { Calendar, Flag, GitBranch, Inbox, ListChecks, Users } from 'lucide-react'
 import { AtlasErrorState } from '@/components/atlas/AtlasErrorState'
+import { Breadcrumb } from '@/components/Breadcrumb'
 import { AtlasMarkdown } from '@/components/atlas/AtlasMarkdown'
 import { useAtlas } from '@/hooks/useAtlas'
 import { fetchAtlasTask } from '@/services/atlas/client'
@@ -31,7 +32,6 @@ const PRIORITY_STYLE: Record<string, string> = {
 
 export default function AtlasTaskDetailPage() {
   const { project = '', id = '' } = useParams<{ project: string; id: string }>()
-  const navigate = useNavigate()
   useDocumentTitle(id || 'Atlas task')
 
   const loader = useCallback(
@@ -43,7 +43,7 @@ export default function AtlasTaskDetailPage() {
   if (!isAtlasConfigured()) {
     return (
       <div className="space-y-6">
-        <BackButton onClick={() => navigate(-1)} />
+        <AtlasBreadcrumb title={id || 'Task'} />
         <AtlasNotConfigured />
       </div>
     )
@@ -52,7 +52,7 @@ export default function AtlasTaskDetailPage() {
   if (loading) {
     return (
       <div className="space-y-6">
-        <BackButton onClick={() => navigate(-1)} />
+        <AtlasBreadcrumb title={id || 'Task'} />
         <SkeletonLine className="h-7 w-2/3" />
         <SkeletonLine className="h-3 w-1/3" />
         <div className="space-y-2">
@@ -67,7 +67,7 @@ export default function AtlasTaskDetailPage() {
   if (error) {
     return (
       <div className="space-y-6">
-        <BackButton onClick={() => navigate(-1)} />
+        <AtlasBreadcrumb title={id || 'Task'} />
         <AtlasErrorState error={error} onRetry={reload} />
       </div>
     )
@@ -81,7 +81,7 @@ export default function AtlasTaskDetailPage() {
 
   return (
     <div className="space-y-6">
-      <BackButton onClick={() => navigate(-1)} />
+      <AtlasBreadcrumb title={title} />
 
       <div>
         <div className="flex flex-wrap items-center gap-2 text-[11px] uppercase tracking-[0.5px] text-[var(--text-secondary)]">
@@ -248,24 +248,15 @@ export default function AtlasTaskDetailPage() {
   )
 }
 
-function BackButton({ onClick }: { onClick: () => void }) {
+function AtlasBreadcrumb({ title }: { title: string }) {
   return (
-    <div>
-      <button
-        type="button"
-        onClick={onClick}
-        className="inline-flex items-center gap-1 rounded text-sm text-[var(--text-secondary)] transition-colors hover:text-[var(--text-primary)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent-focus)]"
-      >
-        <ArrowLeft className="h-4 w-4" aria-hidden="true" />
-        Back
-      </button>
-      <Link
-        to="/atlas?tab=tasks"
-        className="ml-3 text-[11px] text-[var(--text-muted)] hover:text-[var(--text-primary)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent-focus)] rounded"
-      >
-        All Atlas tasks
-      </Link>
-    </div>
+    <Breadcrumb
+      items={[
+        { label: 'Atlas', path: '/atlas' },
+        { label: 'Tasks', path: '/atlas?tab=tasks' },
+        { label: title },
+      ]}
+    />
   )
 }
 

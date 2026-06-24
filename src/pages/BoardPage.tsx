@@ -29,6 +29,7 @@ import { useAuth } from '@/data/auth'
 import { useData } from '@/data/store'
 import { useDocumentTitle } from '@/hooks/useDocumentTitle'
 import { useKeyboardShortcuts } from '@/hooks/useKeyboardShortcuts'
+import { useScrollRestore } from '@/hooks/useScrollRestore'
 import { loadBoardView, saveBoardView, type BoardView } from '@/lib/board-view'
 import type { LayoutOutletContext } from '@/components/layout/Layout'
 import type { Priority, Task, TaskStatus } from '@/data/types'
@@ -42,6 +43,7 @@ const PRIORITY_BY_KEY: Record<string, Priority> = {
 
 export default function BoardPage() {
   useDocumentTitle('Board')
+  useScrollRestore()
   const { currentUser, isPM } = useAuth()
   const {
     tasks,

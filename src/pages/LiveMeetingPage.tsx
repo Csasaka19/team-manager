@@ -28,12 +28,12 @@ import {
 } from 'react'
 import {
   ArrowDown,
-  ArrowLeft,
   ChevronDown,
   ChevronUp,
   Loader2,
   Users,
 } from 'lucide-react'
+import { Breadcrumb } from '@/components/Breadcrumb'
 import { toast } from 'sonner'
 import { useNavigate } from 'react-router-dom'
 import { useAuth } from '@/data/auth'
@@ -144,16 +144,16 @@ export default function LiveMeetingPage() {
     <div className="-mx-4 -mt-6 flex min-h-[calc(100vh-3.5rem)] flex-col md:-mx-6 md:-mt-8 lg:-mx-8">
       {/* Page header */}
       <header className="border-b border-[var(--border-subtle)] bg-[var(--bg-surface)] px-4 py-3 md:px-6">
+        <div className="mb-2">
+          <Breadcrumb
+            items={[
+              { label: 'Meetings', path: '/meetings' },
+              { label: 'Live' },
+            ]}
+          />
+        </div>
         <div className="flex flex-wrap items-center justify-between gap-3">
           <div className="flex items-center gap-3">
-            <button
-              type="button"
-              onClick={() => navigate(-1)}
-              className="inline-flex h-8 items-center gap-1 rounded text-sm text-[var(--text-secondary)] transition-colors hover:text-[var(--text-primary)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent-focus)]"
-            >
-              <ArrowLeft className="h-4 w-4" aria-hidden="true" />
-              Back
-            </button>
             <h1 className="inline-flex items-center gap-2 text-xl font-semibold text-[var(--text-primary)]">
               <span className="relative inline-flex h-2.5 w-2.5">
                 <span

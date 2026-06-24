@@ -1,7 +1,8 @@
 import { useMemo, useState } from 'react'
 import { Link, Navigate, useParams } from 'react-router-dom'
-import { ArrowLeft, Columns3, FileText, Plus } from 'lucide-react'
+import { Columns3, FileText, Plus } from 'lucide-react'
 import { toast } from 'sonner'
+import { Breadcrumb } from '@/components/Breadcrumb'
 import { MeetingList } from '@/components/meetings/MeetingList'
 import { RecordingsSection } from '@/components/recordings/RecordingsSection'
 import { buildRecordingDateSet } from '@/components/recordings/RecordingsSection'
@@ -63,15 +64,13 @@ export default function ProjectDetailPage() {
 
   return (
     <div className="space-y-6">
-      <div>
-        <Link
-          to="/projects"
-          className="inline-flex items-center gap-1 rounded text-sm text-[var(--text-secondary)] transition-colors hover:text-[var(--text-primary)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent-focus)]"
-        >
-          <ArrowLeft className="h-4 w-4" aria-hidden="true" />
-          Projects
-        </Link>
-      </div>
+      <Breadcrumb
+        items={[
+          { label: 'Projects', path: '/projects' },
+          { label: project.name, path: `/projects/${project.id}` },
+          { label: 'Meetings' },
+        ]}
+      />
 
       <header className="flex flex-wrap items-start justify-between gap-3">
         <div className="min-w-0">

@@ -2,7 +2,6 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import { Link, Navigate, useNavigate, useParams } from 'react-router-dom'
 import {
   AlertTriangle,
-  ArrowLeft,
   ArrowRightCircle,
   Calendar,
   Check,
@@ -18,6 +17,7 @@ import {
 } from 'lucide-react'
 import { toast } from 'sonner'
 import { Avatar } from '@/components/shared/Avatar'
+import { Breadcrumb } from '@/components/Breadcrumb'
 import { ConfirmModal } from '@/components/shared/ConfirmModal'
 import { DueDatePicker } from '@/components/shared/DueDatePicker'
 import { RecordingsSection } from '@/components/recordings/RecordingsSection'
@@ -151,15 +151,14 @@ export default function MeetingDetailPage() {
 
   return (
     <div className="space-y-6">
-      <div>
-        <Link
-          to={`/projects/${projectId}`}
-          className="inline-flex items-center gap-1 rounded text-sm text-[var(--text-secondary)] transition-colors hover:text-[var(--text-primary)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent-focus)]"
-        >
-          <ArrowLeft className="h-4 w-4" aria-hidden="true" />
-          {project.name}
-        </Link>
-      </div>
+      <Breadcrumb
+        items={[
+          { label: 'Projects', path: '/projects' },
+          { label: project.name, path: `/projects/${project.id}` },
+          { label: 'Meetings', path: `/projects/${project.id}` },
+          { label: meeting.title },
+        ]}
+      />
 
       <MeetingHeader
         meeting={meeting}

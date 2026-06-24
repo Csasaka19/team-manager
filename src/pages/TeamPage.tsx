@@ -12,12 +12,14 @@ import { TeamMemberCard } from '@/components/team/TeamMemberCard'
 import { useAuth } from '@/data/auth'
 import { useData } from '@/data/store'
 import { useDocumentTitle } from '@/hooks/useDocumentTitle'
+import { useScrollRestore } from '@/hooks/useScrollRestore'
 import type { Role, Task, TeamMember } from '@/data/types'
 
 const ACTIVE_STATUSES = ['todo', 'in_progress', 'in_review'] as const
 
 export default function TeamPage() {
   useDocumentTitle('Team')
+  useScrollRestore()
   const { currentUser, isPM } = useAuth()
   const {
     teamMembers,

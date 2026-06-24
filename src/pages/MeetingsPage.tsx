@@ -4,6 +4,7 @@ import { MeetingListRow } from '@/components/meetings/MeetingListRow'
 import { SkeletonLine } from '@/components/shared/Skeleton'
 import { useData } from '@/data/store'
 import { useDocumentTitle } from '@/hooks/useDocumentTitle'
+import { useScrollRestore } from '@/hooks/useScrollRestore'
 import { now } from '@/lib/date-utils'
 import { cn } from '@/lib/utils'
 import type { Meeting, MeetingStatus } from '@/data/types'
@@ -70,6 +71,7 @@ function resolvePreset(preset: DatePreset): {
 
 export default function MeetingsPage() {
   useDocumentTitle('Meetings')
+  useScrollRestore()
   const { meetings, projects, teamMembers, isInitialLoading } = useData()
 
   const [status, setStatus] = useState<StatusFilter>('all')

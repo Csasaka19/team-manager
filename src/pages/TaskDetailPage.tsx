@@ -1,8 +1,9 @@
 import { useMemo, useState } from 'react'
 import { Link, useNavigate, useParams } from 'react-router-dom'
-import { ArrowLeft, ChevronDown, ChevronRight, FileQuestion, Radio, Table2 } from 'lucide-react'
+import { ChevronDown, ChevronRight, FileQuestion, Radio, Table2 } from 'lucide-react'
 import { toast } from 'sonner'
 import { ActivityCommentFeed } from '@/components/task-detail/ActivityCommentFeed'
+import { Breadcrumb } from '@/components/Breadcrumb'
 import { AtlasMarkdown } from '@/components/atlas/AtlasMarkdown'
 import { DescriptionEditor } from '@/components/task-detail/DescriptionEditor'
 import { SubtaskSection } from '@/components/task-detail/SubtaskSection'
@@ -124,16 +125,15 @@ export default function TaskDetailPage() {
 
   return (
     <div className="space-y-6 md:space-y-8">
-      <div>
-        <button
-          type="button"
-          onClick={() => navigate(-1)}
-          className="inline-flex items-center gap-1 rounded text-sm text-[var(--text-secondary)] transition-colors hover:text-[var(--text-primary)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent-focus)]"
-        >
-          <ArrowLeft className="h-4 w-4" aria-hidden="true" />
-          Back
-        </button>
-      </div>
+      <Breadcrumb
+        items={[
+          { label: 'Projects', path: '/projects' },
+          ...(project
+            ? [{ label: project.name, path: `/projects/${project.id}` }]
+            : []),
+          { label: task.title },
+        ]}
+      />
 
       {/* TaskHeader sticks under the top bar (h-14) + the page's top
           padding so its title + status/priority/assignee/due controls
