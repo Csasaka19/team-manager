@@ -74,6 +74,7 @@ import {
   type Decision,
   type Meeting,
   type MeetingLink,
+  type MeetingQuestion,
   type MeetingStatus,
   type Notification,
   type NotificationType,
@@ -364,6 +365,7 @@ export interface UpdateMeetingInput {
   notes?: string
   decisions?: Decision[]
   actionItems?: ActionItem[]
+  questions?: MeetingQuestion[]
   links?: MeetingLink[]
 }
 
@@ -2151,6 +2153,7 @@ export function DataProvider({ children }: { children: ReactNode }) {
           notes: input.notes ?? '',
           decisions: [],
           actionItems: [],
+          questions: [],
           links: [],
           createdBy: actorId,
           createdAt: now,

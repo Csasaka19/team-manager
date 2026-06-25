@@ -32,7 +32,9 @@ import {
   type Decision,
   type Meeting,
   type MeetingLink,
+  type MeetingQuestion,
   type MeetingStatus,
+  type Project,
   type TeamMember,
 } from '@/data/types'
 
@@ -49,6 +51,20 @@ const STATUS_COLOR_VAR: Record<MeetingStatus, string> = {
 
 function newId(prefix: string): string {
   return `${prefix}-${Math.random().toString(36).slice(2, 10)}`
+}
+
+/** Reject deadline strings that aren't an actual date — Atlas sometimes
+ *  emits the literal word "unknown" / "tbd" / "n/a" for unscheduled
+ *  items. The bridge normalises these to null at ingest, but legacy
+ *  meetings in localStorage may still carry them; treat them as empty
+ *  here so the row shows the neutral "Due" placeholder instead. */
+function displayDueDate(value: string | null): string | null {
+  if (!value) return null
+  const lc = value.trim().toLowerCase()
+  if (!lc || lc === 'unknown' || lc === 'tbd' || lc === 'n/a' || lc === 'none' || lc === 'null') {
+    return null
+  }
+  return value
 }
 
 export default function MeetingDetailPage() {
@@ -201,10 +217,18 @@ export default function MeetingDetailPage() {
         onChange={(decisions) => void safeUpdate('decisions', { decisions })}
       />
 
+      <QuestionsSection
+        questions={meeting.questions}
+        canEdit={canEditContent && !cancelled}
+        onChange={(questions) => void safeUpdate('questions', { questions })}
+      />
+
       <ActionItemsSection
         actionItems={meeting.actionItems}
         members={teamMembers}
         tasks={tasks}
+        project={project ?? null}
+        projectIdFallback={meeting.projectId}
         canEdit={canEditContent && !cancelled}
         canConvert={canEditContent && !cancelled}
         onChange={(actionItems) =>
@@ -821,7 +845,20 @@ function DecisionsSection({
                 className="group/decision flex items-start gap-3 rounded-md border border-[var(--border-subtle)] border-l-[3px] border-l-[var(--status-done)] bg-[var(--bg-surface)] p-3"
               >
                 <div className="min-w-0 flex-1">
-                  <p className="text-sm text-[var(--text-primary)]">{d.text}</p>
+                  {d.text ? (
+                    <p className="whitespace-pre-wrap break-words text-sm leading-snug text-[var(--text-primary)]">
+                      {d.text}
+                    </p>
+                  ) : (
+                    <p className="text-sm italic text-[var(--text-muted)]">
+                      (no decision text)
+                    </p>
+                  )}
+                  {d.rationale && (
+                    <p className="mt-1.5 whitespace-pre-wrap break-words text-xs leading-snug text-[var(--text-secondary)]">
+                      <span className="font-medium">Rationale:</span> {d.rationale}
+                    </p>
+                  )}
                   <div className="mt-2 flex items-center gap-1.5 text-xs text-[var(--text-secondary)]">
                     Decided by{' '}
                     <select
@@ -905,12 +942,145 @@ function DecisionsSection({
   )
 }
 
+// ---- Questions & Blockers --------------------------------------------------
+
+const QUESTION_KIND_LABEL: Record<MeetingQuestion['kind'], string> = {
+  question: 'Question',
+  blocker: 'Blocker',
+  conflict: 'Conflict',
+}
+
+function QuestionsSection({
+  questions,
+  canEdit,
+  onChange,
+}: {
+  questions: MeetingQuestion[]
+  canEdit: boolean
+  onChange: (next: MeetingQuestion[]) => void
+}) {
+  const [adding, setAdding] = useState(false)
+  const [draft, setDraft] = useState('')
+
+  // Hide the entire section when there's nothing AND the user can't
+  // add anything — keeps the page clean for read-only viewers.
+  if (questions.length === 0 && !canEdit) return null
+
+  const handleAdd = () => {
+    const text = draft.trim()
+    if (!text) return
+    onChange([
+      ...questions,
+      { id: newId('q'), text, kind: 'question' },
+    ])
+    setDraft('')
+    setAdding(false)
+  }
+
+  const handleRemove = (id: string) => {
+    onChange(questions.filter((q) => q.id !== id))
+  }
+
+  return (
+    <section aria-labelledby="questions-heading" className="space-y-2">
+      <h2
+        id="questions-heading"
+        className="text-lg font-semibold text-[var(--text-primary)]"
+      >
+        Questions &amp; Blockers
+      </h2>
+
+      {questions.length === 0 ? (
+        adding ? null : (
+          <p className="rounded-md border border-dashed border-[var(--border-subtle)] bg-[var(--bg-surface)]/40 p-3 text-sm italic text-[var(--text-muted)]">
+            No open questions or blockers.
+          </p>
+        )
+      ) : (
+        <ul className="flex flex-col gap-2">
+          {questions.map((q) => (
+            <li
+              key={q.id}
+              className="group/q flex items-start gap-3 rounded-md border border-[var(--border-subtle)] border-l-[3px] border-l-[var(--priority-high)] bg-[var(--bg-surface)] p-3"
+            >
+              <div className="min-w-0 flex-1">
+                <p className="whitespace-pre-wrap break-words text-sm leading-snug text-[var(--text-primary)]">
+                  {q.text}
+                </p>
+                <p className="mt-1.5 text-[11px] uppercase tracking-[0.5px] text-[var(--text-muted)]">
+                  {QUESTION_KIND_LABEL[q.kind]}
+                </p>
+              </div>
+              {canEdit && (
+                <button
+                  type="button"
+                  onClick={() => handleRemove(q.id)}
+                  aria-label="Remove item"
+                  className="rounded p-1 text-[var(--text-muted)] opacity-0 transition-all hover:bg-[color-mix(in_srgb,var(--destructive)_15%,transparent)] hover:text-[var(--destructive)] group-hover/q:opacity-100 focus-visible:opacity-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent-focus)]"
+                >
+                  <X className="h-3.5 w-3.5" />
+                </button>
+              )}
+            </li>
+          ))}
+        </ul>
+      )}
+
+      {canEdit && (
+        adding ? (
+          <div className="flex flex-col gap-2 rounded-md border border-[var(--border-default)] bg-[var(--bg-surface)] p-3">
+            <textarea
+              autoFocus
+              value={draft}
+              onChange={(e) => setDraft(e.target.value)}
+              rows={2}
+              placeholder="What's open?"
+              className="w-full resize-y rounded border border-[var(--border-subtle)] bg-[var(--bg-input)] p-2 text-sm text-[var(--text-primary)] outline-none focus:border-[var(--accent-primary)] focus:ring-2 focus:ring-[var(--accent-focus)]"
+            />
+            <div className="flex justify-end gap-2">
+              <button
+                type="button"
+                onClick={() => {
+                  setDraft('')
+                  setAdding(false)
+                }}
+                className="inline-flex h-7 items-center rounded px-2 text-xs font-medium text-[var(--text-secondary)] hover:text-[var(--text-primary)]"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={handleAdd}
+                disabled={!draft.trim()}
+                className="inline-flex h-7 items-center rounded bg-[var(--accent-primary)] px-2.5 text-xs font-medium text-[var(--text-inverse)] hover:bg-[var(--accent-hover)] disabled:cursor-not-allowed disabled:opacity-50"
+              >
+                Add
+              </button>
+            </div>
+          </div>
+        ) : (
+          <button
+            type="button"
+            onClick={() => setAdding(true)}
+            className="inline-flex h-8 items-center gap-1.5 rounded text-xs font-medium text-[var(--accent-primary)] hover:text-[var(--accent-hover)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent-focus)]"
+          >
+            <Plus className="h-3.5 w-3.5" aria-hidden="true" />
+            Add question or blocker
+          </button>
+        )
+      )}
+    </section>
+  )
+}
+
 // ---- Action items ----------------------------------------------------------
 
 function ActionItemsSection({
   actionItems,
   members,
   tasks,
+  project,
+  projectIdFallback,
   canEdit,
   canConvert,
   onChange,
@@ -920,6 +1090,13 @@ function ActionItemsSection({
   actionItems: ActionItem[]
   members: TeamMember[]
   tasks: Array<{ id: string }>
+  /** The meeting's project, resolved by the parent page. `null` only
+   *  in the edge case where the projectId doesn't match any project in
+   *  the store (e.g. stale localStorage or a deleted project). */
+  project: Project | null
+  /** Raw projectId from the meeting, used to label the action item
+   *  row when `project` couldn't be resolved. */
+  projectIdFallback: string
   canEdit: boolean
   canConvert: boolean
   onChange: (next: ActionItem[]) => void
@@ -975,6 +1152,8 @@ function ActionItemsSection({
               key={a.id}
               item={a}
               members={members}
+              project={project}
+              projectIdFallback={projectIdFallback}
               canEdit={canEdit}
               canConvert={canConvert && a.linkedTaskId === null}
               taskExists={a.linkedTaskId ? taskIds.has(a.linkedTaskId) : false}
@@ -1048,6 +1227,8 @@ function ActionItemsSection({
 function ActionItemRow({
   item,
   members,
+  project,
+  projectIdFallback,
   canEdit,
   canConvert,
   taskExists,
@@ -1061,6 +1242,8 @@ function ActionItemRow({
 }: {
   item: ActionItem
   members: TeamMember[]
+  project: Project | null
+  projectIdFallback: string
   canEdit: boolean
   canConvert: boolean
   taskExists: boolean
@@ -1092,6 +1275,18 @@ function ActionItemRow({
     document.addEventListener('mousedown', onDoc)
     return () => document.removeEventListener('mousedown', onDoc)
   }, [dateOpen])
+
+  // Log once per render-of-a-bad-row when the meeting's projectId
+  // doesn't resolve. Either the project was deleted out from under
+  // the meeting or the bridge stashed an orphan id we don't have a
+  // matching entry for.
+  useEffect(() => {
+    if (project) return
+    // eslint-disable-next-line no-console
+    console.warn(
+      `Could not resolve project name for action item ${item.id} (projectId="${projectIdFallback}")`,
+    )
+  }, [project, item.id, projectIdFallback])
 
   return (
     <li className="group/ai flex items-center gap-2 rounded-md border border-[var(--border-subtle)] bg-[var(--bg-surface)] px-2 py-2">
@@ -1160,6 +1355,24 @@ function ActionItemRow({
         )}
       </div>
 
+      <span
+        className="hidden w-[120px] shrink-0 items-center gap-1.5 text-xs text-[var(--text-secondary)] md:inline-flex"
+        title={
+          project
+            ? project.name
+            : `Unresolved project (${projectIdFallback})`
+        }
+      >
+        <span
+          aria-hidden="true"
+          className="h-1.5 w-1.5 shrink-0 rounded-full"
+          style={{ backgroundColor: project?.color ?? 'var(--text-muted)' }}
+        />
+        <span className="truncate">
+          {project ? project.name : projectIdFallback}
+        </span>
+      </span>
+
       <select
         value={item.assigneeId ?? ''}
         disabled={!canEdit}
@@ -1185,7 +1398,7 @@ function ActionItemRow({
           className="inline-flex h-7 items-center gap-1 rounded border border-[var(--border-subtle)] bg-[var(--bg-input)] px-1.5 text-xs text-[var(--text-secondary)] hover:text-[var(--text-primary)] disabled:cursor-not-allowed disabled:opacity-60"
         >
           <Calendar className="h-3 w-3" aria-hidden="true" />
-          {item.dueDate ?? 'Due'}
+          {displayDueDate(item.dueDate) ?? 'Due'}
         </button>
         {dateOpen && (
           <div className="absolute right-0 top-full z-20 mt-1 w-60 rounded-md border border-[var(--border-default)] bg-[var(--bg-elevated)] shadow-[0_4px_16px_rgba(0,0,0,0.3)]">

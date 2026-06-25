@@ -33,6 +33,7 @@ import type {
   Activity,
   Decision,
   MeetingLink,
+  MeetingQuestion,
   Meeting,
   Priority,
   Project,
@@ -47,6 +48,7 @@ import type {
   AtlasManifest,
   AtlasManifestTask,
   AtlasProject,
+  AtlasSummary,
   AtlasTask,
 } from './atlas/types'
 
@@ -346,6 +348,12 @@ export function mapAtlasManifestToMeeting(
      *  canonical Project.id even when the manifest references the
      *  project by alias or in a different case. */
     resolveProjectId?: (raw: string) => string | null
+    /** Day-summary doc paired with this manifest. The manifest's
+     *  `extractions.decisions[]` is bare IDs in the current Atlas API;
+     *  the prose lives in the summary markdown's "## Decisions"
+     *  bullets. When supplied, we resolve decision text by index from
+     *  those bullets. */
+    summary?: AtlasSummary | null
   } = {},
 ): Meeting {
   const now = options.now ?? new Date().toISOString()
@@ -357,25 +365,81 @@ export function mapAtlasManifestToMeeting(
     ? options.resolveProjectId(manifest.project) ?? UNASSIGNED_PROJECT_ID
     : normalizeAtlasSlug(manifest.project) || UNASSIGNED_PROJECT_ID
 
-  const attendees = new Set<string>()
-  for (const t of manifest.extractions.tasks) {
-    for (const s of manifestTaskSlugs(t)) attendees.add(s)
-  }
+  const attendees = collectAttendees(manifest)
 
-  const decisions: Decision[] = manifest.extractions.decisions.map((d, i) => ({
-    id: typeof d.id === 'string' && d.id ? d.id : `dec-${manifest.manifest_id}-${i}`,
-    text: d.description,
-    decidedBy: null,
-  }))
+  // Each `extractions.decisions[i]` is either a bare ID string (current
+  // API) or an inline object (legacy / future shape). When we get IDs,
+  // the actual prose is in the day-summary markdown under `## Decisions`
+  // — fall back to the bullet at the same index. If the summary has
+  // more bullets than the manifest has refs, surface those too so a
+  // misaligned manifest doesn't drop user-visible content.
+  const summaryDecisions = options.summary
+    ? parseSummarySectionBullets(options.summary.content, 'Decisions')
+    : []
+  const refs = manifest.extractions.decisions
+  const maxLen = Math.max(refs.length, summaryDecisions.length)
+  const decisions: Decision[] = []
+  for (let i = 0; i < maxLen; i += 1) {
+    const ref = refs[i]
+    const refIsObject = typeof ref === 'object' && ref !== null
+    const inlineText = refIsObject ? ref.description : undefined
+    const inlineId = refIsObject
+      ? (typeof ref.id === 'string' && ref.id ? ref.id : null)
+      : typeof ref === 'string' && ref
+        ? ref
+        : null
+    const text = (inlineText ?? summaryDecisions[i] ?? '').trim()
+    if (!text) continue
+    const decision: Decision = {
+      id: inlineId ?? `dec-${manifest.manifest_id}-${i}`,
+      text,
+      decidedBy: null,
+    }
+    if (refIsObject && typeof ref.rationale === 'string' && ref.rationale.trim()) {
+      decision.rationale = ref.rationale.trim()
+    }
+    decisions.push(decision)
+  }
 
   const actionItems: ActionItem[] = manifest.extractions.tasks.map((t, i) => ({
     id: typeof t.id === 'string' && t.id ? t.id : `act-${manifest.manifest_id}-${i}`,
     text: t.description,
     assigneeId: manifestTaskSlugs(t)[0] ?? null,
-    dueDate: typeof t.deadline === 'string' ? t.deadline : null,
+    dueDate: normalizeManifestDeadline(t.deadline),
     done: false,
     linkedTaskId: null,
   }))
+
+  // Questions, blockers, and detected conflicts all surface in the same
+  // "Questions & Blockers" UI section but keep their semantic kind so
+  // the renderer can colour-code conflicts differently from open
+  // questions. Empty entries are dropped.
+  const questions: MeetingQuestion[] = []
+  for (let i = 0; i < manifest.extractions.questions_blockers.length; i += 1) {
+    const q = manifest.extractions.questions_blockers[i]
+    if (!q) continue
+    const text = (q.description ?? '').trim()
+    if (!text) continue
+    const kind: MeetingQuestion['kind'] = /\b(block|blocker|stuck|waiting)\b/i.test(text)
+      ? 'blocker'
+      : 'question'
+    questions.push({
+      id: typeof q.id === 'string' && q.id ? q.id : `qb-${manifest.manifest_id}-${i}`,
+      text,
+      kind,
+    })
+  }
+  for (let i = 0; i < manifest.extractions.conflicts_detected.length; i += 1) {
+    const c = manifest.extractions.conflicts_detected[i]
+    if (!c) continue
+    const text = (c.description ?? '').trim()
+    if (!text) continue
+    questions.push({
+      id: typeof c.id === 'string' && c.id ? c.id : `conf-${manifest.manifest_id}-${i}`,
+      text,
+      kind: 'conflict',
+    })
+  }
 
   const links: MeetingLink[] = manifest.sources.map((s, i) => ({
     id: `link-${manifest.manifest_id}-${i}`,
@@ -385,7 +449,7 @@ export function mapAtlasManifestToMeeting(
 
   return {
     id: manifest.manifest_id ?? `${resolvedProject}-${manifest.date}`,
-    title: deriveMeetingTitle(manifest),
+    title: deriveMeetingTitle(manifest, options.summary ?? null),
     projectId: resolvedProject || UNASSIGNED_PROJECT_ID,
     date: manifest.date,
     startTime: null,
@@ -394,9 +458,10 @@ export function mapAtlasManifestToMeeting(
     status: 'completed',
     location: 'Atlas — Auto-extracted',
     agenda: null,
-    notes: buildMeetingNotes(manifest),
+    notes: buildMeetingNotes(manifest, options.summary ?? null),
     decisions,
     actionItems,
+    questions,
     links,
     createdBy: ATLAS_SYSTEM_ACTOR,
     createdAt,
@@ -607,7 +672,129 @@ function slugify(input: string): string {
     .replace(/^-+|-+$/g, '')
 }
 
-function deriveMeetingTitle(m: AtlasManifest): string {
+/** Names that show up in source filenames but represent ZoomBot /
+ *  transcription bots, not human participants. Anything containing
+ *  "digital" or matching one of these slugs is dropped from the
+ *  attendee roster. */
+const KNOWN_BOT_SLUGS = new Set([
+  'digitalbrian',
+  'digital-brian',
+  'zoombot',
+  'zoom-bot',
+  'otter',
+  'fireflies',
+])
+
+function isBotSlug(slug: string): boolean {
+  const lc = slug.toLowerCase()
+  if (KNOWN_BOT_SLUGS.has(lc)) return true
+  return lc.includes('digital') || lc.includes('bot')
+}
+
+/** Pull participant slugs out of a source filename.
+ *
+ *  Filenames look like
+ *  "Room_2_Brian_P_DigitalBrian_2026-06-24_15-04-00.txt"
+ *  Tokenize on `_`, drop the leading "Room_N" prefix, drop the trailing
+ *  date+time, then walk the remaining tokens. Two-token names that
+ *  match KNOWN_MEMBERS as a pair (e.g. `Brian_P` → "brian-p") get
+ *  preferred over the single-token form.
+ */
+function attendeesFromFilename(filename: string): string[] {
+  if (typeof filename !== 'string') return []
+  const stem = filename.replace(/\.[a-z0-9]+$/i, '')
+  // Strip trailing YYYY-MM-DD[_HH-MM-SS].
+  const noDate = stem.replace(/_+\d{4}-\d{2}-\d{2}(?:_\d{2}-\d{2}-\d{2})?$/, '')
+  // Strip leading "Room_N" / "Room_NN".
+  const noRoom = noDate.replace(/^Room_\d+_/i, '')
+  const tokens = noRoom.split(/_+/).filter(Boolean)
+
+  const out: string[] = []
+  let i = 0
+  while (i < tokens.length) {
+    const tok = tokens[i]!
+    if (isBotSlug(tok)) {
+      i += 1
+      continue
+    }
+    // Combine an initial suffix with the previous name: "Brian_P" →
+    // "brian-p". A token of ≤2 alphabetic characters following a
+    // longer name is interpreted as an initial (matches what Zoom
+    // does to disambiguate same-first-name participants).
+    if (i + 1 < tokens.length) {
+      const next = tokens[i + 1]!
+      const isInitial = /^[A-Za-z]{1,2}$/.test(next) && tok.length > 2
+      const pair = `${tok}-${next}`.toLowerCase()
+      if (KNOWN_MEMBERS[pair] || isInitial) {
+        if (!isBotSlug(pair)) out.push(pair)
+        i += 2
+        continue
+      }
+    }
+    const single = tok.toLowerCase()
+    if (single && !isBotSlug(single)) out.push(single)
+    i += 1
+  }
+  return out
+}
+
+/** Union of task-assignee slugs and filename-derived participant slugs,
+ *  minus known bots. Returns a sorted Set for stable ordering. */
+function collectAttendees(manifest: AtlasManifest): Set<string> {
+  const out = new Set<string>()
+  for (const t of manifest.extractions.tasks) {
+    for (const s of manifestTaskSlugs(t)) {
+      if (!isBotSlug(s)) out.add(s)
+    }
+  }
+  for (const src of manifest.sources) {
+    for (const s of attendeesFromFilename(src.filename ?? '')) out.add(s)
+  }
+  return out
+}
+
+/** Treat the literal strings Atlas uses for "no deadline known"
+ *  ("unknown", "tbd", "n/a", empty, ...) as null so the UI doesn't
+ *  render them as a real due date. We do NOT validate the date format
+ *  here — downstream renderers already cope with arbitrary date-ish
+ *  strings; we just refuse the sentinel non-dates. */
+function normalizeManifestDeadline(value: unknown): string | null {
+  if (typeof value !== 'string') return null
+  const trimmed = value.trim()
+  if (!trimmed) return null
+  const lc = trimmed.toLowerCase()
+  if (lc === 'unknown' || lc === 'tbd' || lc === 'n/a' || lc === 'none' || lc === 'null') {
+    return null
+  }
+  return trimmed
+}
+
+/** Pull the first `# Headline` line out of a summary markdown body and
+ *  trim the boilerplate "— Daily Summary YYYY-MM-DD" suffix that Atlas
+ *  appends to the heading. */
+function summaryHeadline(summary: AtlasSummary | null): string | null {
+  if (!summary) return null
+  for (const raw of summary.content.split(/\r?\n/)) {
+    const m = /^#{1,6}\s+(.*)$/.exec(raw.trim())
+    if (m && m[1]) {
+      const heading = m[1].trim()
+      if (/^daily\s+summary/i.test(heading)) continue
+      // "Foo Sync — Daily Summary 2026-06-24" → "Foo Sync"
+      const stripped = heading
+        .replace(/\s*[—–-]\s*Daily Summary\s+\d{4}-\d{2}-\d{2}\s*$/i, '')
+        .trim()
+      return stripped || heading
+    }
+  }
+  return null
+}
+
+function deriveMeetingTitle(
+  m: AtlasManifest,
+  summary: AtlasSummary | null,
+): string {
+  const headline = summaryHeadline(summary)
+  if (headline) return headline
   const first = m.sources[0]
   if (first && typeof first.filename === 'string') {
     // "Room_2_Clive_Chris_Brian_P_2026-06-10_14-23-00.txt" → strip ext and
@@ -619,28 +806,143 @@ function deriveMeetingTitle(m: AtlasManifest): string {
       .trim()
     if (stem) return `${stem} — ${m.date}`
   }
-  return `Daily Manifest — ${m.date}`
+  return `Meeting — ${m.date}`
 }
 
-function buildMeetingNotes(m: AtlasManifest): string {
-  const lines: string[] = []
+/**
+ * Best-effort: infer who made a decision when the source data didn't
+ * carry a `decidedBy`. We look at the head of the decision text for a
+ * known member name followed by a decision verb ("agreed", "decided",
+ * "confirmed", "approved", "chose", "committed", "will"). Returns the
+ * member's id, or `null` when no confident match exists.
+ *
+ * Tries the two-token prefix first (so "Brian P agreed…" matches
+ * "Brian P" rather than partial-matching "Brian") before falling back
+ * to the single-token prefix.
+ */
+export function inferDecidedBy(
+  text: string,
+  members: ReadonlyArray<{ id: string; name: string }>,
+): string | null {
+  if (!text) return null
+  const verb = /^\s*([A-Z][\w.'-]*(?:\s+[A-Z][\w.'-]*)?)\s+(agreed|decided|confirmed|approved|chose|committed|will)\b/
+  const m = verb.exec(text)
+  if (!m || !m[1]) return null
+  const candidate = m[1].trim().toLowerCase()
+  // Two-token candidate ("Brian P") — match in full first.
+  const exact = members.find((mem) => mem.name.toLowerCase() === candidate)
+  if (exact) return exact.id
+  // Fall back to the first token only ("Brian") — but require the
+  // first token to be at least 3 chars so we don't match initials.
+  const firstToken = candidate.split(/\s+/)[0] ?? ''
+  if (firstToken.length < 3) return null
+  const singleMatches = members.filter(
+    (mem) => mem.name.toLowerCase().split(/\s+/)[0] === firstToken,
+  )
+  // Only accept a single-token match when it's unambiguous — two
+  // "Brian"s on the roster means we punt to "(group)".
+  if (singleMatches.length === 1) return singleMatches[0]!.id
+  return null
+}
+
+/**
+ * Pull bullet lines out of a named section of an Atlas summary's
+ * markdown. The bridge uses this to recover decision prose from
+ * `## Decisions` because manifests only carry decision IDs.
+ *
+ * Accepts `-`, `*`, or `+` bullets, optional leading whitespace, and
+ * stops at the next heading. Returns trimmed bullet text in document
+ * order. Returns `[]` if the section isn't present or has no bullets.
+ */
+export function parseSummarySectionBullets(
+  content: string,
+  sectionTitle: string,
+): string[] {
+  const lines = content.split(/\r?\n/)
+  const titleLc = sectionTitle.trim().toLowerCase()
+  const out: string[] = []
+  let inSection = false
+  for (const raw of lines) {
+    const line = raw.replace(/\s+$/, '')
+    const heading = /^(#{1,6})\s+(.*)$/.exec(line)
+    if (heading) {
+      if (inSection) break
+      if (heading[2]?.trim().toLowerCase() === titleLc) {
+        inSection = true
+      }
+      continue
+    }
+    if (!inSection) continue
+    const bullet = /^\s*[-*+]\s+(.+)$/.exec(line)
+    if (bullet && bullet[1]) {
+      const text = bullet[1].trim()
+      if (text) out.push(text)
+    }
+  }
+  return out
+}
+
+/**
+ * Discussion-notes body for a meeting.
+ *
+ * Priority order:
+ *   1. Use the day-summary markdown verbatim when available — it
+ *      already has Headline / Decisions / Progress / Blockers / Source
+ *      sections written by Atlas. We strip a leading `# Title` line so
+ *      it doesn't duplicate the meeting title that's rendered above.
+ *      Decision and action-item content is intentionally kept (their
+ *      dedicated sections reuse the same data, but seeing it in the
+ *      narrative gives readers the surrounding paragraphs that the
+ *      structured rows can't carry).
+ *   2. Fall back to synthesising structured markdown from the manifest
+ *      extractions when no summary is attached.
+ */
+function buildMeetingNotes(
+  m: AtlasManifest,
+  summary: AtlasSummary | null,
+): string {
+  if (summary && summary.content && summary.content.trim()) {
+    return stripLeadingTitle(summary.content).trim()
+  }
   const ext = m.extractions
+  const sections: string[] = []
   if (ext.status_updates.length > 0) {
-    lines.push('Status updates:')
-    for (const s of ext.status_updates) lines.push(`- ${s.description}`)
-    lines.push('')
+    sections.push(
+      ['## Progress', ...ext.status_updates.map((s) => `- ${s.description}`)].join('\n'),
+    )
   }
   if (ext.knowledge_artifacts.length > 0) {
-    lines.push('Knowledge artifacts:')
-    for (const k of ext.knowledge_artifacts) lines.push(`- ${k.description}`)
-    lines.push('')
+    sections.push(
+      ['## Knowledge', ...ext.knowledge_artifacts.map((k) => `- ${k.description}`)].join(
+        '\n',
+      ),
+    )
   }
   if (ext.questions_blockers.length > 0) {
-    lines.push('Questions / blockers:')
-    for (const q of ext.questions_blockers) lines.push(`- ${q.description}`)
-    lines.push('')
+    sections.push(
+      [
+        '## Questions & Blockers',
+        ...ext.questions_blockers.map((q) => `- ${q.description}`),
+      ].join('\n'),
+    )
   }
-  return lines.join('\n').trim()
+  return sections.join('\n\n').trim()
+}
+
+/** Drop the first `# Heading` line from a markdown body. Used to avoid
+ *  duplicating the summary's headline in the discussion-notes panel
+ *  when the page header already shows it as the meeting title. */
+function stripLeadingTitle(content: string): string {
+  const lines = content.split(/\r?\n/)
+  let i = 0
+  // Skip leading blanks
+  while (i < lines.length && lines[i] !== undefined && lines[i]!.trim() === '') i += 1
+  if (i < lines.length && /^#\s+/.test(lines[i]!)) {
+    i += 1
+    // Skip the blank line that usually follows a heading
+    while (i < lines.length && lines[i] !== undefined && lines[i]!.trim() === '') i += 1
+  }
+  return lines.slice(i).join('\n')
 }
 
 const KNOWN_FEED_FIELDS = new Set([

@@ -1074,6 +1074,7 @@ Last topic: the launch date. We're committing to June 12 for the public push, wi
         linkedTaskId: null,
       },
     ],
+    questions: [],
     links: [
       {
         id: 'lnk-1-1',
@@ -1138,6 +1139,7 @@ For the cutoff: today is May 17, six-week heads-up puts notice on May 24 and cut
         linkedTaskId: null,
       },
     ],
+    questions: [],
     links: [
       {
         id: 'lnk-2-1',
@@ -1203,6 +1205,7 @@ Open question we didn't resolve: whether to gate biometric setup behind a server
         linkedTaskId: null,
       },
     ],
+    questions: [],
     links: [
       {
         id: 'lnk-3-1',
@@ -1261,6 +1264,7 @@ No blockers worth escalating.`,
         linkedTaskId: null,
       },
     ],
+    questions: [],
     links: [],
     createdBy: PM_ID,
     createdAt: '2026-05-22T09:28:00Z',
@@ -1283,6 +1287,7 @@ No blockers worth escalating.`,
     notes: '',
     decisions: [],
     actionItems: [],
+    questions: [],
     links: [],
     createdBy: PM_ID,
     createdAt: '2026-05-22T10:00:00Z',

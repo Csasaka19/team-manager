@@ -93,6 +93,12 @@ export interface AtlasDecision {
   [extra: string]: unknown
 }
 
+/** What the manifest's `extractions.decisions[]` entries can look like:
+ *  the current Atlas API returns a bare ID string per decision and parks
+ *  the prose in the summary markdown's "## Decisions" section. Older /
+ *  future shapes may embed the object inline — handle both. */
+export type AtlasDecisionRef = string | AtlasDecision
+
 export interface AtlasManifestTask {
   id: string
   description: string
@@ -126,7 +132,7 @@ export interface AtlasConflict {
 }
 
 export interface AtlasExtractions {
-  decisions: AtlasDecision[]
+  decisions: AtlasDecisionRef[]
   tasks: AtlasManifestTask[]
   status_updates: AtlasStatusUpdate[]
   knowledge_artifacts: AtlasKnowledgeArtifact[]

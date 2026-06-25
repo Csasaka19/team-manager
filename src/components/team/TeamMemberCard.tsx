@@ -1,16 +1,27 @@
 import { useMemo, useState } from 'react'
 import { ChevronDown, ChevronRight, Trash2 } from 'lucide-react'
 import { Avatar } from '@/components/shared/Avatar'
-import { TeamTaskCard, TeamTaskRow } from './TeamTaskCard'
+import { TeamTaskListRow, TeamTaskRow } from './TeamTaskCard'
 import { cn } from '@/lib/utils'
 import { now, startOfWeek } from '@/lib/date-utils'
 import {
   STATUS_LABELS,
+  type Priority,
   type Project,
   type Task,
   type TaskStatus,
   type TeamMember,
 } from '@/data/types'
+
+/** Ranking used to sort the collapsed preview — highest-priority
+ *  non-done tasks float to the top so the first three rows surface
+ *  what the member should look at first. */
+const PRIORITY_RANK: Record<Priority, number> = {
+  critical: 0,
+  high: 1,
+  medium: 2,
+  low: 3,
+}
 
 interface TeamMemberCardProps {
   member: TeamMember
@@ -52,7 +63,20 @@ export function TeamMemberCard({
     () => tasks.filter((t) => ACTIVE_STATUSES.includes(t.status)),
     [tasks],
   )
-  const previewTasks = activeTasks.slice(0, 3)
+  // Highest-priority active tasks first; equal-priority ties fall
+  // back to the earlier due date so a critical task due Today beats
+  // a critical task due next month.
+  const previewTasks = useMemo(() => {
+    const sorted = [...activeTasks].sort((a, b) => {
+      const rank = PRIORITY_RANK[a.priority] - PRIORITY_RANK[b.priority]
+      if (rank !== 0) return rank
+      if (a.dueDate && b.dueDate) return a.dueDate.localeCompare(b.dueDate)
+      if (a.dueDate) return -1
+      if (b.dueDate) return 1
+      return 0
+    })
+    return sorted.slice(0, 3)
+  }, [activeTasks])
   const moreCount = Math.max(0, activeTasks.length - previewTasks.length)
 
   // Per-member collapsed status groups in the expanded view. Done is
@@ -145,12 +169,13 @@ export function TeamMemberCard({
               No active tasks assigned
             </p>
           ) : (
-            <ul className="flex flex-col gap-1.5">
-              {previewTasks.map((t) => (
+            <ul className="flex flex-col gap-1">
+              {previewTasks.map((t, i) => (
                 <li key={t.id}>
                   <TeamTaskRow
                     task={t}
                     project={projectsById.get(t.projectId)}
+                    index={i}
                   />
                 </li>
               ))}
@@ -196,12 +221,13 @@ export function TeamMemberCard({
                     {STATUS_LABELS[status]} ({list.length})
                   </button>
                   {!isCollapsed && (
-                    <ul className="grid grid-cols-1 gap-2 md:grid-cols-2">
-                      {list.map((t) => (
+                    <ul className="flex flex-col gap-1">
+                      {list.map((t, i) => (
                         <li key={t.id}>
-                          <TeamTaskCard
+                          <TeamTaskListRow
                             task={t}
                             project={projectsById.get(t.projectId)}
+                            index={i}
                           />
                         </li>
                       ))}

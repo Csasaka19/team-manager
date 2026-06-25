@@ -158,6 +158,10 @@ export interface Decision {
   text: string
   /** Member who made the call. `null` when it was a group decision. */
   decidedBy: string | null
+  /** Optional short explanation for why the call was made. Surfaced
+   *  beneath the decision text. Only populated when the upstream
+   *  source carries one (e.g. an Atlas manifest with `rationale`). */
+  rationale?: string
 }
 
 export interface ActionItem {
@@ -169,6 +173,18 @@ export interface ActionItem {
   /** When this action item has been converted into a full Task, the
    *  resulting task's id is stored here so the UI can link to it. */
   linkedTaskId: string | null
+}
+
+/** Question or blocker raised in a meeting — surfaced as its own
+ *  section in the meeting detail. Tagged as `conflict` when the
+ *  upstream source (Atlas) flagged it as a detected conflict between
+ *  participants. */
+export type MeetingQuestionKind = 'question' | 'blocker' | 'conflict'
+
+export interface MeetingQuestion {
+  id: string
+  text: string
+  kind: MeetingQuestionKind
 }
 
 export interface MeetingLink {
@@ -198,6 +214,10 @@ export interface Meeting {
   notes: string
   decisions: Decision[]
   actionItems: ActionItem[]
+  /** Questions, blockers, and detected conflicts raised in the
+   *  meeting. Surfaced as a dedicated section between Decisions and
+   *  Action Items. Empty array when there are none. */
+  questions: MeetingQuestion[]
   links: MeetingLink[]
   createdBy: string
   createdAt: string

@@ -22,6 +22,7 @@ import {
   fetchAtlasManifest,
   fetchAtlasProjects,
   fetchAtlasSummaries,
+  fetchAtlasSummary,
   fetchAtlasTasks,
 } from '@/services/atlas/client'
 import {
@@ -29,6 +30,7 @@ import {
   buildProjectResolver,
   buildUnassignedProject,
   extractTeamMembers,
+  inferDecidedBy,
   mapAtlasFeedItemToActivity,
   mapAtlasManifestToMeeting,
   mapAtlasProjectToProject,
@@ -43,7 +45,7 @@ import type {
   Task,
   TeamMember,
 } from './types'
-import type { AtlasManifest } from '@/services/atlas/types'
+import type { AtlasManifest, AtlasSummary } from '@/services/atlas/types'
 
 // ── Snapshot loading ─────────────────────────────────────────────────────
 
@@ -131,20 +133,42 @@ export async function loadFromAtlas(
   // Manifests are 1:1 with summary day-files. Issue them in parallel only
   // after we know which (project, date) pairs exist — saves us blindly
   // probing all-projects × last-N-days (9 × 7 = 63 calls) every refresh.
+  //
+  // We fetch each pair's summary alongside its manifest: the current
+  // Atlas API only puts decision IDs in `extractions.decisions[]`, with
+  // the actual prose in the summary markdown's `## Decisions` bullets.
+  // Without the summary, decision cards render empty. The summary key
+  // `${project}__${date}` (the same shape used to fetch them) gets each
+  // manifest its paired summary when we map it.
+  const manifestSummaries = new Map<string, AtlasSummary>()
   let manifests: AtlasManifest[] = []
   if (includeMeetings && summariesRaw) {
     const limit = opts.manifestLimit ?? 25
     const pairs = summariesRaw.slice(0, limit)
     const results = await Promise.allSettled(
-      pairs.map((p) => fetchAtlasManifest(p.project, p.date)),
+      pairs.map(async (p) => {
+        const [manifest, summary] = await Promise.allSettled([
+          fetchAtlasManifest(p.project, p.date),
+          fetchAtlasSummary(p.project, p.date),
+        ])
+        return {
+          pair: p,
+          manifest: manifest.status === 'fulfilled' ? manifest.value : null,
+          summary: summary.status === 'fulfilled' ? summary.value : null,
+        }
+      }),
     )
     for (const r of results) {
       if (r.status !== 'fulfilled') continue
-      const value = r.value
-      if ('manifests' in value && Array.isArray(value.manifests)) {
-        manifests.push(...value.manifests)
-      } else if ('manifest_id' in value) {
-        manifests.push(value as AtlasManifest)
+      const { pair, manifest, summary } = r.value
+      if (summary) {
+        manifestSummaries.set(`${pair.project}__${pair.date}`, summary)
+      }
+      if (!manifest) continue
+      if ('manifests' in manifest && Array.isArray(manifest.manifests)) {
+        manifests.push(...manifest.manifests)
+      } else if ('manifest_id' in manifest) {
+        manifests.push(manifest as AtlasManifest)
       }
     }
   }
@@ -166,7 +190,11 @@ export async function loadFromAtlas(
     mapAtlasFeedItemToActivity(f, { now, resolveProjectId }),
   )
   const meetings = manifests.map((m) =>
-    mapAtlasManifestToMeeting(m, { now, resolveProjectId }),
+    mapAtlasManifestToMeeting(m, {
+      now,
+      resolveProjectId,
+      summary: manifestSummaries.get(`${m.project}__${m.date}`) ?? null,
+    }),
   )
 
   const orphanTaskCount = tasks.filter(
@@ -197,12 +225,29 @@ export async function loadFromAtlas(
   if (tasksRaw) projects = populateProjectMemberIds(projects, resolvedTasks)
   const teamMembers = extractTeamMembers(tasksRaw ?? [], { manifests, now })
 
+  // Now that we know the full team roster, infer `decidedBy` for any
+  // decision whose text starts with a recognisable name + decision
+  // verb. The mapper can't do this in isolation — it sees one manifest
+  // at a time and has no member context.
+  const meetingsWithDecidedBy = meetings.map((m) => {
+    if (m.decisions.length === 0) return m
+    let changed = false
+    const decisions = m.decisions.map((d) => {
+      if (d.decidedBy !== null) return d
+      const inferred = inferDecidedBy(d.text, teamMembers)
+      if (!inferred) return d
+      changed = true
+      return { ...d, decidedBy: inferred }
+    })
+    return changed ? { ...m, decisions } : m
+  })
+
   return {
     projects,
     tasks,
     teamMembers,
     activities,
-    meetings,
+    meetings: meetingsWithDecidedBy,
     loadedAt: now,
     errors,
   }

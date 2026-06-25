@@ -237,10 +237,17 @@ function ExtractionGroups({ extractions }: { extractions: AtlasExtractions }) {
       key: 'decisions',
       label: 'Decisions',
       icon: CheckCircle2,
-      items: extractions.decisions.map((d) => ({
-        description: d.description,
-        ...(d.rationale ? { secondary: d.rationale } : {}),
-      })),
+      items: extractions.decisions.map((d) => {
+        // The manifest's `decisions[]` entries can be either bare ID
+        // strings (current API) or inline objects (defensive). We
+        // surface whatever text we have; meeting pages resolve real
+        // prose from the summary markdown.
+        if (typeof d === 'string') return { description: d }
+        return {
+          description: d.description,
+          ...(d.rationale ? { secondary: d.rationale } : {}),
+        }
+      }),
     },
     {
       key: 'tasks',
