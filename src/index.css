@@ -196,6 +196,19 @@
   }
 }
 
+/* Pop-in for the check icon when a task is marked done from a list row.
+   200ms scale + fade so the tap feels satisfying without being theatrical. */
+@keyframes checkboxPop {
+  0% {
+    opacity: 0;
+    transform: scale(0.8);
+  }
+  100% {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+
 /* Celebration pulse on the subtask progress bar once every item is done.
    2-second cycle, green shadow halo. */
 @keyframes pulseSubtaskComplete {

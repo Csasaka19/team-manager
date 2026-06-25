@@ -9,6 +9,8 @@ import {
   useState,
   type ReactNode,
 } from 'react'
+import { useNavigate } from 'react-router-dom'
+import { toast } from 'sonner'
 import {
   DEFAULT_DISCORD_SETTINGS,
   buildActionItemConvertedEmbed,
@@ -32,6 +34,7 @@ import { useAuth } from './auth'
 import {
   applyOverlayList,
   emptyOverlay,
+  fetchTodaysMeetings,
   loadFromAtlas,
   loadOverlay,
   mergeDiffIntoOverlay,
@@ -39,6 +42,12 @@ import {
   type AtlasSnapshot,
   type LocalOverlay,
 } from './atlas-bridge'
+import {
+  applyBootstrapToOverlay,
+  bootstrapFromSupabase,
+  syncOverlayDiff,
+} from './supabase-sync'
+import { isSupabaseConfigured } from '@/services/supabase'
 import {
   combineSourceSnapshots,
   loadFromSheets,
@@ -92,6 +101,11 @@ import {
 const MUTATION_DELAY_MS = 800
 const ATLAS_REFRESH_INTERVAL_MS = 60_000
 const SHEETS_REFRESH_INTERVAL_FALLBACK_MS = 15 * 60 * 1000
+/** Cadence for the today-only meeting refresh. Catches meetings that
+ *  finish during the workday — the 60s Atlas refresh skips manifests
+ *  (they're too heavy to refetch every minute), so we run a focused
+ *  today-only pass on a much slower tick. */
+const MEETINGS_REFRESH_INTERVAL_MS = 10 * 60 * 1000
 
 interface PrevSheetTask {
   title: string
@@ -277,14 +291,41 @@ function notifTypeEnabled(recipientId: string, type: NotificationType): boolean 
   }
 }
 
-function uid(prefix: string): string {
+/**
+ * Generate a bare RFC-4122 v4 UUID.
+ *
+ * The `prefix` argument used to be embedded in the returned id
+ * ("task-abc…", "act-abc…") for debugging convenience, but the
+ * Supabase `id` columns for local_tasks/subtasks/comments/activities
+ * are `uuid` type and reject anything that isn't a canonical UUID.
+ * We keep the parameter so every existing call site still compiles
+ * without churn — it's now just a hint for human readers and gets
+ * dropped at the boundary.
+ */
+function uid(_prefix: string): string {
   if (
     typeof globalThis.crypto !== 'undefined' &&
     typeof globalThis.crypto.randomUUID === 'function'
   ) {
-    return `${prefix}-${globalThis.crypto.randomUUID()}`
+    return globalThis.crypto.randomUUID()
   }
-  return `${prefix}-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`
+  // Paranoid fallback for environments without `crypto.randomUUID`
+  // (none we ship to in practice — modern browsers + Node 14.17+ all
+  // have it). Produces a valid v4-shaped uuid using Math.random.
+  const hex = '0123456789abcdef'
+  let out = ''
+  for (let i = 0; i < 36; i++) {
+    if (i === 8 || i === 13 || i === 18 || i === 23) {
+      out += '-'
+    } else if (i === 14) {
+      out += '4'
+    } else if (i === 19) {
+      out += hex[(Math.random() * 4) | 8] // 8, 9, a, or b
+    } else {
+      out += hex[(Math.random() * 16) | 0]
+    }
+  }
+  return out
 }
 
 function delay(ms: number): Promise<void> {
@@ -565,6 +606,7 @@ const DataContext = createContext<DataStore | null>(null)
 
 export function DataProvider({ children }: { children: ReactNode }) {
   const { currentUser, logout } = useAuth()
+  const navigate = useNavigate()
   const [teamMembers, setTeamMembers] = useState<TeamMember[]>(mockTeamMembers)
   const [tags, setTags] = useState<Tag[]>(mockTags)
   const [projects, setProjects] = useState<Project[]>(mockProjects)
@@ -640,10 +682,19 @@ export function DataProvider({ children }: { children: ReactNode }) {
   const snapshotRef = useRef<AtlasSnapshot | null>(null)
   /** Local overlay, persisted to localStorage on every save. */
   const overlayRef = useRef<LocalOverlay>(emptyOverlay())
+  /** Last overlay successfully shipped to Supabase. The state-watching
+   *  sync effect diffs the live overlay against this to know what's
+   *  new since the last write. Updated optimistically — failures are
+   *  swallowed in the sync layer with a retry + toast. */
+  const lastSyncedOverlayRef = useRef<LocalOverlay>(emptyOverlay())
+  /** Guards the one-shot bootstrap effect so we don't re-pull Supabase
+   *  data on every state change. */
+  const supabaseBootstrappedRef = useRef<boolean>(false)
 
   useEffect(() => {
     // Read the persisted overlay once on mount so reloads keep local changes.
     overlayRef.current = loadOverlay()
+    lastSyncedOverlayRef.current = overlayRef.current
   }, [])
 
   useEffect(() => {
@@ -1088,9 +1139,107 @@ export function DataProvider({ children }: { children: ReactNode }) {
     return () => window.clearInterval(id)
   }, [dataSource, runAtlasLoad])
 
+  // 10-minute today-only meeting refresh. The 60s loop skips
+  // manifests (too heavy to refetch every minute against a full
+  // 30-day window); this lighter tick probes only today's date per
+  // project so meetings that finish mid-workday show up without a
+  // page reload. New ones get appended to live state and surface
+  // through the standard write-through (so Supabase persists them
+  // too); existing ones are skipped to avoid clobbering local edits.
+  useEffect(() => {
+    if (dataSource !== 'atlas') return
+    const tick = async () => {
+      const sheetsOn = isGoogleSheetsConfigured()
+      const excludeProjectIds = sheetsOn ? [SHEETS_PROJECT_ID] : []
+      const fresh = await fetchTodaysMeetings({ excludeProjectIds })
+      if (fresh.length === 0) return
+      const knownIds = new Set(atlasMeetingsRef.current.map((m) => m.id))
+      const additions = fresh.filter((m) => !knownIds.has(m.id))
+      if (additions.length === 0) return
+      setMeetings((prev) => [...prev, ...additions])
+      toast.success(
+        additions.length === 1
+          ? 'New meeting data available'
+          : `${additions.length} new meetings available`,
+        {
+          action: {
+            label: 'View',
+            onClick: () => navigate('/meetings'),
+          },
+          duration: 8_000,
+        },
+      )
+    }
+    const id = window.setInterval(() => {
+      void tick()
+    }, MEETINGS_REFRESH_INTERVAL_MS)
+    return () => window.clearInterval(id)
+  }, [dataSource, navigate])
+
   const refreshFromAtlas = useCallback(async () => {
     await runAtlasLoad('refresh')
   }, [runAtlasLoad])
+
+  // ── Supabase bootstrap (one-shot) ─────────────────────────────────────
+  // Pull every Supabase table once the source snapshot is in place,
+  // fold the rows into the in-memory overlay, and re-apply so the
+  // shared-team edits land in live state. Gated on `lastSynced`
+  // because we need a snapshot to attach overrides + subtasks against.
+  // In mock mode (no source configured) we currently skip — the mock
+  // fixtures aren't a join key Supabase can address against.
+  useEffect(() => {
+    if (supabaseBootstrappedRef.current) return
+    if (!isSupabaseConfigured()) return
+    if (lastSynced === null) return
+    supabaseBootstrappedRef.current = true
+    void (async () => {
+      const bootstrap = await bootstrapFromSupabase(currentUser?.id ?? null)
+      const merged = applyBootstrapToOverlay(overlayRef.current, bootstrap, {
+        snapshotTasks: snapshotIndex.tasksById,
+      })
+      overlayRef.current = merged
+      lastSyncedOverlayRef.current = merged
+      saveOverlay(merged)
+      // Push the augmented overlay into live state. `preserve-prior`
+      // keeps the just-loaded meetings rather than re-fetching Atlas.
+      applyCombinedSnapshot({ meetingsMode: 'preserve-prior' })
+    })()
+  }, [
+    lastSynced,
+    currentUser?.id,
+    snapshotIndex.tasksById,
+    applyCombinedSnapshot,
+  ])
+
+  // ── Supabase write-through ────────────────────────────────────────────
+  // Whenever live state changes, recompute the overlay diff vs the
+  // current snapshot, save to localStorage, and dispatch per-table
+  // Supabase writes for whatever changed since the last sync.
+  // Optimistic: state is already updated by the time we run.
+  useEffect(() => {
+    if (!isSupabaseConfigured()) return
+    if (!supabaseBootstrappedRef.current) return
+    const snap = snapshotRef.current
+    if (!snap) return
+    const nextOverlay = mergeDiffIntoOverlay(
+      overlayRef.current,
+      tasks,
+      activities,
+      projects,
+      meetings,
+      snap,
+    )
+    const prev = lastSyncedOverlayRef.current
+    overlayRef.current = nextOverlay
+    saveOverlay(nextOverlay)
+    lastSyncedOverlayRef.current = nextOverlay
+    void syncOverlayDiff(prev, nextOverlay, {
+      snapshotTasks: snapshotIndex.tasksById,
+      snapshotMeetings: snapshotIndex.meetingsById,
+      actorId: currentUser?.id ?? 'system',
+    })
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [tasks, activities, projects, meetings])
 
   // ── Sheets loader ─────────────────────────────────────────────────────
   // Sheets has the same shape as Atlas but its own cadence (15 min vs 60s),

@@ -211,7 +211,11 @@ export function TeamMemberCard({
                     type="button"
                     onClick={() => toggleGroup(status)}
                     aria-expanded={!isCollapsed}
-                    className="mb-2 inline-flex items-center gap-1.5 rounded text-[11px] font-semibold uppercase tracking-[0.5px] text-[var(--text-secondary)] hover:text-[var(--text-primary)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent-focus)]"
+                    // px-2 matches the row's px-2 so the chevron lines
+                    // up with the checkbox column below. The button
+                    // is still inline-flex so the click target hugs
+                    // the label rather than spanning the full width.
+                    className="mb-2 inline-flex items-center gap-1.5 rounded px-2 text-[11px] font-semibold uppercase tracking-[0.5px] text-[var(--text-secondary)] hover:text-[var(--text-primary)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent-focus)]"
                   >
                     {isCollapsed ? (
                       <ChevronRight className="h-3 w-3" aria-hidden="true" />

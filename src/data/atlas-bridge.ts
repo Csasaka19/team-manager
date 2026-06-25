@@ -21,7 +21,6 @@ import {
   fetchAtlasFeed,
   fetchAtlasManifest,
   fetchAtlasProjects,
-  fetchAtlasSummaries,
   fetchAtlasSummary,
   fetchAtlasTasks,
 } from '@/services/atlas/client'
@@ -67,16 +66,135 @@ export interface LoadOptions {
   includeMeetings?: boolean
   /** Override `now` for deterministic tests. */
   now?: string
-  /** Manifest enumeration ceiling. Default 25 — high enough to cover a
-   *  couple of weeks of daily standups across all projects, low enough
-   *  not to thrash the API on every refresh. */
-  manifestLimit?: number
+  /** How many days back from today (inclusive) to probe for manifests.
+   *  We iterate `projects × dates` explicitly so today's manifests get
+   *  picked up even when the `/summaries` index hasn't caught up yet,
+   *  and so older meetings don't disappear behind the index's
+   *  recency window. Default 30 — about a calendar month. */
+  manifestDaysBack?: number
   /** Atlas project slugs to drop from the result before mapping. The
    *  store passes `['contracting-com']` here when Google Sheets is
    *  configured, so the sheet becomes the canonical source for that
    *  project and Atlas's copy is suppressed. Cascades through tasks,
    *  manifests, and meetings as well. */
   excludeProjectIds?: string[]
+}
+
+/** Build a list of YYYY-MM-DD strings (local time) from `today`
+ *  inclusive going back `daysBack` days. */
+function buildDateList(daysBack: number, now: Date = new Date()): string[] {
+  const out: string[] = []
+  for (let i = 0; i <= daysBack; i++) {
+    const d = new Date(now)
+    d.setDate(d.getDate() - i)
+    const yyyy = d.getFullYear()
+    const mm = String(d.getMonth() + 1).padStart(2, '0')
+    const dd = String(d.getDate()).padStart(2, '0')
+    out.push(`${yyyy}-${mm}-${dd}`)
+  }
+  return out
+}
+
+/** Heuristic: did this rejection come from a 404 (no manifest for that
+ *  date)? Atlas surfaces missing manifests as 404s, which we treat as
+ *  "no meeting that day" rather than as an error worth warning about. */
+function isNotFoundError(err: unknown): boolean {
+  const msg = err instanceof Error ? err.message : String(err)
+  return /\b404\b/.test(msg) || /not found/i.test(msg)
+}
+
+interface ManifestFetchResult {
+  manifests: AtlasManifest[]
+  summaries: Map<string, AtlasSummary>
+  errors: AtlasSnapshot['errors']
+}
+
+/**
+ * Fetch every (project, date) pair in parallel batches, dedupe the
+ * resulting manifests by `manifest_id`, and return both the manifests
+ * and the paired summaries needed for decision-text resolution.
+ *
+ * Concurrency cap (CHUNK) keeps us from firing ~600 simultaneous
+ * requests at the local Atlas server on a 30-day initial load —
+ * batches of 30 means ~20 sequential rounds, which is fast enough
+ * for the user's wait but easy on the host.
+ */
+async function fetchManifestsForPairs(
+  pairs: Array<{ project: string; date: string }>,
+): Promise<ManifestFetchResult> {
+  const manifests: AtlasManifest[] = []
+  const summaries = new Map<string, AtlasSummary>()
+  const errors: AtlasSnapshot['errors'] = []
+  const seenManifestIds = new Set<string>()
+  const CHUNK = 30
+
+  for (let i = 0; i < pairs.length; i += CHUNK) {
+    const slice = pairs.slice(i, i + CHUNK)
+    const results = await Promise.allSettled(
+      slice.map(async (p) => {
+        const [manifest, summary] = await Promise.allSettled([
+          fetchAtlasManifest(p.project, p.date),
+          fetchAtlasSummary(p.project, p.date),
+        ])
+        return { pair: p, manifest, summary }
+      }),
+    )
+    for (const r of results) {
+      if (r.status !== 'fulfilled') continue
+      const { pair, manifest, summary } = r.value
+
+      if (summary.status === 'fulfilled' && summary.value) {
+        summaries.set(`${pair.project}__${pair.date}`, summary.value)
+      } else if (
+        summary.status === 'rejected' &&
+        !isNotFoundError(summary.reason)
+      ) {
+        // Non-404 summary errors aren't fatal — the manifest can still
+        // render, just without rationale/decision-text fallback.
+        // eslint-disable-next-line no-console
+        console.warn(
+          `[atlas-bridge] summary fetch error: ${pair.project}/${pair.date}`,
+          summary.reason,
+        )
+      }
+
+      if (manifest.status === 'rejected') {
+        if (!isNotFoundError(manifest.reason)) {
+          const msg =
+            manifest.reason instanceof Error
+              ? manifest.reason.message
+              : String(manifest.reason)
+          errors.push({
+            source: `manifest:${pair.project}/${pair.date}`,
+            message: msg,
+          })
+          // eslint-disable-next-line no-console
+          console.warn(
+            `[atlas-bridge] manifest fetch error: ${pair.project}/${pair.date}`,
+            manifest.reason,
+          )
+        }
+        continue
+      }
+      const m = manifest.value
+      if (!m) continue
+      const toAdd: AtlasManifest[] =
+        'manifests' in m && Array.isArray(m.manifests)
+          ? m.manifests
+          : 'manifest_id' in m
+            ? [m as AtlasManifest]
+            : []
+      for (const one of toAdd) {
+        // De-dup by manifest_id — the same manifest can surface from
+        // both a (project, date) probe and a `/summaries` discovery
+        // call (kept around for compatibility with older callers).
+        if (seenManifestIds.has(one.manifest_id)) continue
+        seenManifestIds.add(one.manifest_id)
+        manifests.push(one)
+      }
+    }
+  }
+  return { manifests, summaries, errors }
 }
 
 /** Fetch every needed endpoint in parallel and return a fully-mapped
@@ -96,21 +214,16 @@ export async function loadFromAtlas(
     return null
   }
 
-  const [projectsRawAll, tasksRawAll, feedRawAll, summariesRawAll] = await Promise.all([
+  const [projectsRawAll, tasksRawAll, feedRawAll] = await Promise.all([
     fetchAtlasProjects().catch(record('projects')),
     fetchAtlasTasks().catch(record('tasks')),
     fetchAtlasFeed(50).catch(record('feed')),
-    includeMeetings
-      ? fetchAtlasSummaries({ limit: opts.manifestLimit ?? 25 }).catch(
-          record('summaries'),
-        )
-      : Promise.resolve(null),
   ])
 
   // Apply the project-exclusion filter once, then thread the filtered
   // results to every downstream mapper. Exclusion cascades: tasks for an
-  // excluded project are dropped, and same-project summaries/manifests
-  // are suppressed too so we don't render orphaned data.
+  // excluded project are dropped, and same-project manifests are
+  // suppressed too so we don't render orphaned data.
   // Normalize on both sides so a caller passing "Contracting-com" still
   // matches an API value of "contracting-com".
   const excluded = new Set(
@@ -126,51 +239,30 @@ export async function loadFromAtlas(
   const feedRaw = feedRawAll
     ? feedRawAll.filter((f) => !isExcluded(f.project))
     : feedRawAll
-  const summariesRaw = summariesRawAll
-    ? summariesRawAll.filter((s) => !isExcluded(s.project))
-    : summariesRawAll
 
-  // Manifests are 1:1 with summary day-files. Issue them in parallel only
-  // after we know which (project, date) pairs exist — saves us blindly
-  // probing all-projects × last-N-days (9 × 7 = 63 calls) every refresh.
+  // Manifest fetch — explicit `projects × dates` iteration rather
+  // than `/summaries`-driven. Two reasons:
+  //   1. Today's manifest exists before the `/summaries` index
+  //      catches up, so a summary-driven fetch misses it.
+  //   2. `/summaries` caps recency to N entries; older manifests
+  //      fall off the index even though their files are still
+  //      queryable directly.
   //
-  // We fetch each pair's summary alongside its manifest: the current
-  // Atlas API only puts decision IDs in `extractions.decisions[]`, with
-  // the actual prose in the summary markdown's `## Decisions` bullets.
-  // Without the summary, decision cards render empty. The summary key
-  // `${project}__${date}` (the same shape used to fetch them) gets each
-  // manifest its paired summary when we map it.
+  // We still fetch the paired summary alongside each manifest because
+  // the manifest's `extractions.decisions[]` only carries decision IDs
+  // — the actual prose lives in the summary markdown's bullets.
   const manifestSummaries = new Map<string, AtlasSummary>()
   let manifests: AtlasManifest[] = []
-  if (includeMeetings && summariesRaw) {
-    const limit = opts.manifestLimit ?? 25
-    const pairs = summariesRaw.slice(0, limit)
-    const results = await Promise.allSettled(
-      pairs.map(async (p) => {
-        const [manifest, summary] = await Promise.allSettled([
-          fetchAtlasManifest(p.project, p.date),
-          fetchAtlasSummary(p.project, p.date),
-        ])
-        return {
-          pair: p,
-          manifest: manifest.status === 'fulfilled' ? manifest.value : null,
-          summary: summary.status === 'fulfilled' ? summary.value : null,
-        }
-      }),
+  if (includeMeetings && projectsRaw && projectsRaw.length > 0) {
+    const daysBack = opts.manifestDaysBack ?? 30
+    const dates = buildDateList(daysBack)
+    const pairs = projectsRaw.flatMap((p) =>
+      dates.map((date) => ({ project: p.slug, date })),
     )
-    for (const r of results) {
-      if (r.status !== 'fulfilled') continue
-      const { pair, manifest, summary } = r.value
-      if (summary) {
-        manifestSummaries.set(`${pair.project}__${pair.date}`, summary)
-      }
-      if (!manifest) continue
-      if ('manifests' in manifest && Array.isArray(manifest.manifests)) {
-        manifests.push(...manifest.manifests)
-      } else if ('manifest_id' in manifest) {
-        manifests.push(manifest as AtlasManifest)
-      }
-    }
+    const fetched = await fetchManifestsForPairs(pairs)
+    manifests = fetched.manifests
+    for (const [k, v] of fetched.summaries) manifestSummaries.set(k, v)
+    if (fetched.errors.length > 0) errors.push(...fetched.errors)
   }
 
   // Resolver maps a raw task.project (possibly an alias, possibly
@@ -251,6 +343,48 @@ export async function loadFromAtlas(
     loadedAt: now,
     errors,
   }
+}
+
+/**
+ * Fetch today's manifests across every known project and return them
+ * as fully-mapped `Meeting` entities. Used by the store's 10-minute
+ * meeting-refresh interval — much cheaper than re-running the full
+ * 30-day `loadFromAtlas` because it only hits one date per project.
+ *
+ * Returns an empty array if Atlas isn't reachable or projects can't
+ * be listed; the caller treats "nothing new today" and "couldn't
+ * reach Atlas" identically (the next tick will retry).
+ */
+export async function fetchTodaysMeetings(
+  opts: { excludeProjectIds?: string[] } = {},
+): Promise<Meeting[]> {
+  let projectsRaw
+  try {
+    projectsRaw = await fetchAtlasProjects()
+  } catch {
+    return []
+  }
+  const excluded = new Set(
+    (opts.excludeProjectIds ?? []).map((s) => normalizeAtlasSlug(s)),
+  )
+  const projectsFiltered = projectsRaw.filter(
+    (p) => !excluded.has(normalizeAtlasSlug(p.slug)),
+  )
+  if (projectsFiltered.length === 0) return []
+  const [today] = buildDateList(0)
+  if (!today) return []
+  const pairs = projectsFiltered.map((p) => ({ project: p.slug, date: today }))
+  const fetched = await fetchManifestsForPairs(pairs)
+  if (fetched.manifests.length === 0) return []
+  const resolveProjectId = buildProjectResolver(projectsFiltered)
+  const now = new Date().toISOString()
+  return fetched.manifests.map((m) =>
+    mapAtlasManifestToMeeting(m, {
+      now,
+      resolveProjectId,
+      summary: fetched.summaries.get(`${m.project}__${m.date}`) ?? null,
+    }),
+  )
 }
 
 // ── Local overlay ───────────────────────────────────────────────────────

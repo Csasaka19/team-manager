@@ -92,6 +92,9 @@ export function formatRelativeDueDate(
 ): RelativeDueDate | null {
   if (!iso) return null
   const due = asDate(iso)
+  // Guard against legacy/garbage values like "unknown" that slipped past
+  // earlier normalization — never surface "Invalid Date" to the UI.
+  if (Number.isNaN(due.getTime())) return null
   const diffDays = daysBetween(now(), due)
 
   if (diffDays < 0) {
