@@ -346,16 +346,24 @@ export async function loadFromAtlas(
 }
 
 /**
- * Fetch today's manifests across every known project and return them
- * as fully-mapped `Meeting` entities. Used by the store's 10-minute
- * meeting-refresh interval — much cheaper than re-running the full
- * 30-day `loadFromAtlas` because it only hits one date per project.
+ * Fetch manifests across every known project for the last `daysBack`
+ * days (inclusive of today) and return them as fully-mapped `Meeting`
+ * entities. Lighter than the full `loadFromAtlas` because it skips
+ * projects/tasks/feed and only hits the manifest+summary endpoints.
+ *
+ * Used by:
+ *   - The store's 5-min today-only timer (`daysBack: 0`) to catch
+ *     meetings processed mid-workday.
+ *   - The Meetings page's on-mount refresh (`daysBack: 30`) so a user
+ *     navigating there always sees the latest Atlas state without
+ *     waiting for the next background tick.
  *
  * Returns an empty array if Atlas isn't reachable or projects can't
- * be listed; the caller treats "nothing new today" and "couldn't
- * reach Atlas" identically (the next tick will retry).
+ * be listed; the caller treats "nothing new" and "couldn't reach
+ * Atlas" identically (the next tick will retry).
  */
-export async function fetchTodaysMeetings(
+export async function fetchMeetingsForRange(
+  daysBack: number,
   opts: { excludeProjectIds?: string[] } = {},
 ): Promise<Meeting[]> {
   let projectsRaw
@@ -371,9 +379,11 @@ export async function fetchTodaysMeetings(
     (p) => !excluded.has(normalizeAtlasSlug(p.slug)),
   )
   if (projectsFiltered.length === 0) return []
-  const [today] = buildDateList(0)
-  if (!today) return []
-  const pairs = projectsFiltered.map((p) => ({ project: p.slug, date: today }))
+  const dates = buildDateList(daysBack)
+  if (dates.length === 0) return []
+  const pairs = projectsFiltered.flatMap((p) =>
+    dates.map((date) => ({ project: p.slug, date })),
+  )
   const fetched = await fetchManifestsForPairs(pairs)
   if (fetched.manifests.length === 0) return []
   const resolveProjectId = buildProjectResolver(projectsFiltered)
@@ -385,6 +395,14 @@ export async function fetchTodaysMeetings(
       summary: fetched.summaries.get(`${m.project}__${m.date}`) ?? null,
     }),
   )
+}
+
+/** Today-only variant — preserved for callers that explicitly want
+ *  the fast single-date fetch. Thin wrapper over `fetchMeetingsForRange(0)`. */
+export async function fetchTodaysMeetings(
+  opts: { excludeProjectIds?: string[] } = {},
+): Promise<Meeting[]> {
+  return fetchMeetingsForRange(0, opts)
 }
 
 // ── Local overlay ───────────────────────────────────────────────────────

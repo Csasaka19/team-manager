@@ -34,6 +34,7 @@ import { useAuth } from './auth'
 import {
   applyOverlayList,
   emptyOverlay,
+  fetchMeetingsForRange,
   fetchTodaysMeetings,
   loadFromAtlas,
   loadOverlay,
@@ -104,8 +105,9 @@ const SHEETS_REFRESH_INTERVAL_FALLBACK_MS = 15 * 60 * 1000
 /** Cadence for the today-only meeting refresh. Catches meetings that
  *  finish during the workday — the 60s Atlas refresh skips manifests
  *  (they're too heavy to refetch every minute), so we run a focused
- *  today-only pass on a much slower tick. */
-const MEETINGS_REFRESH_INTERVAL_MS = 10 * 60 * 1000
+ *  today-only pass on a slower tick. 5 min hits the sweet spot
+ *  between "meeting finishes and the user notices it" and Atlas load. */
+const MEETINGS_REFRESH_INTERVAL_MS = 5 * 60 * 1000
 
 interface PrevSheetTask {
   title: string
@@ -445,8 +447,16 @@ export interface DataStore {
   /** True while a background refresh is in flight (initial load uses
    *  `isInitialLoading` instead). */
   isRefreshing: boolean
-  /** Force-refresh the Atlas snapshot. No-op in mock mode. */
+  /** Force-refresh the Atlas snapshot. No-op in mock mode. The manual
+   *  refresh re-pulls manifests too (the 60s background tick skips them
+   *  for cost). */
   refreshFromAtlas: () => Promise<void>
+  /** Pull a fresh 30-day meetings window from Atlas and merge into the
+   *  store, preserving any local overlay edits. Cheaper than
+   *  `refreshFromAtlas` because it skips projects/tasks/feed — used by
+   *  the Meetings page on mount so a user navigating there always sees
+   *  the latest manifests without waiting for the next background tick. */
+  refreshMeetings: () => Promise<void>
   /** Task ids the user has touched locally — used by the board to render a
    *  "local change" indicator. Computed by diffing live tasks against the
    *  last raw Atlas snapshot; empty in mock mode. */
@@ -1061,8 +1071,15 @@ export function DataProvider({ children }: { children: ReactNode }) {
   // `runAtlasLoad` is the single source of truth for "go fetch from Atlas
   // and merge into the store." Mount, the 60s interval, manual refresh,
   // and Settings save all funnel through it.
+  //
+  // `mode === 'refresh'` defaults to skipping manifests (the 60s tick
+  // can't afford the fan-out). Pass `includeMeetings: true` explicitly
+  // for a manual refresh that should also re-pull manifests.
   const runAtlasLoad = useCallback(
-    async (mode: 'initial' | 'refresh') => {
+    async (
+      mode: 'initial' | 'refresh',
+      runOpts: { includeMeetings?: boolean } = {},
+    ) => {
       const atlasOn = isAtlasConfigured()
       const sheetsOn = isGoogleSheetsConfigured()
       if (!atlasOn && !sheetsOn) {
@@ -1094,18 +1111,22 @@ export function DataProvider({ children }: { children: ReactNode }) {
       if (mode === 'initial') setIsInitialLoading(true)
       setIsRefreshing(true)
       try {
+        // Manifests rarely change between background refreshes — the
+        // 60s tick skips them to keep the per-tick fan-out small.
+        // The initial load and manual refresh both opt into meetings
+        // so users never have to wait for the slow 5-min meetings
+        // timer to catch up.
+        const includeMeetings =
+          runOpts.includeMeetings ?? mode === 'initial'
         const snapshot = await loadFromAtlas({
-          // Manifests rarely change between refreshes; we only enumerate
-          // them on the initial load (or manual refresh) to keep the
-          // 60-second tick under one request fan-out.
-          includeMeetings: mode === 'initial',
+          includeMeetings,
           // When Sheets is active, it owns contracting-com — suppress
           // Atlas's copy so the two sources don't collide on the same id.
           excludeProjectIds: sheetsOn ? [SHEETS_PROJECT_ID] : [],
         })
         atlasRawRef.current = snapshot
         applyCombinedSnapshot({
-          meetingsMode: mode === 'initial' ? 'fresh' : 'preserve-prior',
+          meetingsMode: includeMeetings ? 'fresh' : 'preserve-prior',
         })
       } catch (err) {
         setSyncError(err instanceof Error ? err.message : String(err))
@@ -1177,8 +1198,77 @@ export function DataProvider({ children }: { children: ReactNode }) {
   }, [dataSource, navigate])
 
   const refreshFromAtlas = useCallback(async () => {
-    await runAtlasLoad('refresh')
+    // Manual refresh — opt into the manifest fetch even though the
+    // background tick skips it. The user just asked to see fresh data.
+    await runAtlasLoad('refresh', { includeMeetings: true })
   }, [runAtlasLoad])
+
+  /**
+   * Re-fetch the 30-day meeting window across every project and merge
+   * the result into the store. Cheaper than `refreshFromAtlas` because
+   * it doesn't touch projects/tasks/feed. Preserves any local overlay
+   * edits — fresh Atlas copies replace stale snapshot entries by id,
+   * but a user's edited meeting keeps its override.
+   *
+   * Called by:
+   *   - `MeetingsPage` on mount, so navigating there always lands on
+   *     the latest Atlas state instead of whatever was loaded at app
+   *     boot.
+   *   - `ProjectDetailPage` when the meetings tab activates, same
+   *     reason.
+   */
+  const refreshMeetings = useCallback<DataStore['refreshMeetings']>(
+    async () => {
+      if (!isAtlasConfigured()) return
+      const snap = snapshotRef.current
+      if (!snap) return
+      const sheetsOn = isGoogleSheetsConfigured()
+      const excludeProjectIds = sheetsOn ? [SHEETS_PROJECT_ID] : []
+      let fresh: Meeting[]
+      try {
+        fresh = await fetchMeetingsForRange(30, { excludeProjectIds })
+      } catch {
+        // Network/Atlas hiccup — silent, the 5-min timer will retry.
+        return
+      }
+      if (fresh.length === 0) return
+
+      // Merge fresh into the source snapshot: replace by id, append new.
+      // Meetings outside the 30-day window stay (we never fetched them
+      // here, so we have no fresh value to compare).
+      const freshById = new Map(fresh.map((m) => [m.id, m]))
+      const seen = new Set<string>()
+      const mergedMeetings: Meeting[] = []
+      for (const m of snap.meetings) {
+        const f = freshById.get(m.id)
+        mergedMeetings.push(f ?? m)
+        seen.add(m.id)
+      }
+      for (const f of fresh) {
+        if (seen.has(f.id)) continue
+        mergedMeetings.push(f)
+      }
+
+      snapshotRef.current = { ...snap, meetings: mergedMeetings }
+      setSnapshotIndex((prev) => ({
+        ...prev,
+        meetingsById: new Map(mergedMeetings.map((m) => [m.id, m])),
+      }))
+
+      // Re-apply overlay over the freshened snapshot. Locally-edited
+      // meetings keep their override; everything else picks up Atlas's
+      // latest version.
+      const overlay = overlayRef.current
+      setMeetings(
+        applyOverlayList(
+          mergedMeetings,
+          overlay.meetings,
+          overlay.meetingTombstones,
+        ),
+      )
+    },
+    [],
+  )
 
   // ── Supabase bootstrap (one-shot) ─────────────────────────────────────
   // Pull every Supabase table once the source snapshot is in place,
@@ -2477,6 +2567,7 @@ export function DataProvider({ children }: { children: ReactNode }) {
       syncError,
       isRefreshing,
       refreshFromAtlas,
+      refreshMeetings,
       locallyModifiedTaskIds,
       snapshotIndex,
       sheetsConnected,
@@ -2544,6 +2635,7 @@ export function DataProvider({ children }: { children: ReactNode }) {
       syncError,
       isRefreshing,
       refreshFromAtlas,
+      refreshMeetings,
       locallyModifiedTaskIds,
       snapshotIndex,
       sheetsConnected,

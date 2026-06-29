@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import {
   Link,
   Navigate,
@@ -51,11 +51,20 @@ export default function ProjectDetailPage() {
     dataSource,
     snapshotIndex,
     projectDataSources,
+    refreshMeetings,
   } = useData()
   const { recordings } = useZoomBot()
 
   const [searchParams, setSearchParams] = useSearchParams()
   const tab: Tab = parseTab(searchParams.get('tab'))
+
+  // When the user opens the meetings tab, pull a fresh 30-day window
+  // so they see Atlas's latest state — not whatever was loaded at app
+  // boot. Cheap fire-and-forget; the merge preserves any local edits.
+  useEffect(() => {
+    if (tab !== 'meetings') return
+    void refreshMeetings()
+  }, [tab, refreshMeetings])
   const setTab = (next: Tab) => {
     const sp = new URLSearchParams(searchParams)
     if (next === 'board') sp.delete('tab')

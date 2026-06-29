@@ -72,7 +72,22 @@ function resolvePreset(preset: DatePreset): {
 export default function MeetingsPage() {
   useDocumentTitle('Meetings')
   useScrollRestore()
-  const { meetings, projects, teamMembers, isInitialLoading } = useData()
+  const {
+    meetings,
+    projects,
+    teamMembers,
+    isInitialLoading,
+    refreshMeetings,
+  } = useData()
+
+  // Pull a fresh 30-day window every time the user lands here. The
+  // store's background tick skips manifests and the dedicated meeting
+  // timer only covers today, so without this the user could see a
+  // snapshot frozen at app boot if they leave the tab open and Atlas
+  // processes new meetings later.
+  useEffect(() => {
+    void refreshMeetings()
+  }, [refreshMeetings])
 
   const [status, setStatus] = useState<StatusFilter>('all')
   const [projectId, setProjectId] = useState<string>('all')
