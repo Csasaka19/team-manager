@@ -6,9 +6,11 @@ import {
   downloadCSV,
   filenameDateStamp,
 } from '@/lib/csv-export'
+import { Fragment } from 'react'
 import { ConfirmModal } from '@/components/shared/ConfirmModal'
 import { InviteMemberModal } from '@/components/team/InviteMemberModal'
 import { TeamMemberCard } from '@/components/team/TeamMemberCard'
+import { TeamMemberExpanded } from '@/components/team/TeamMemberExpanded'
 import { useAuth } from '@/data/auth'
 import { useData } from '@/data/store'
 import { useDocumentTitle } from '@/hooks/useDocumentTitle'
@@ -301,32 +303,38 @@ export default function TeamPage() {
           )}
         </div>
       ) : (
-        // 2-column grid (1-column on mobile). The expanded card claims
-        // the full row via md:col-span-2 so its body has real horizontal
-        // space for the two-line task cards. Adjacent siblings reflow
-        // to the next available cell.
-        <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
+        // 2-column grid (1-column on mobile). `grid-flow-row-dense`
+        // lets adjacent cards backfill empty cells when the expanded
+        // section (a col-span-2 sibling) lands on its own row — the
+        // expanded section appears BELOW the row of the clicked card,
+        // and the rest of the cards continue in order without holes.
+        <div className="grid grid-flow-row-dense grid-cols-1 items-stretch gap-4 md:grid-cols-2">
           {visibleMembers.map((m) => {
             const isExpanded = expandedId === m.id
             const canRemove =
               isPM && m.id !== currentUser.id && dataSource !== 'atlas'
             return (
-              <div
-                key={m.id}
-                className={isExpanded ? 'md:col-span-2' : undefined}
-              >
+              <Fragment key={m.id}>
                 <TeamMemberCard
                   member={m}
                   tasks={tasksByMember.get(m.id) ?? []}
-                  projectsById={projectsById}
                   expanded={isExpanded}
                   onToggle={() =>
                     setExpandedId((prev) => (prev === m.id ? null : m.id))
                   }
-                  canRemove={canRemove}
-                  onRemove={() => setConfirmRemove(m)}
                 />
-              </div>
+                {isExpanded && (
+                  <div className="md:col-span-2">
+                    <TeamMemberExpanded
+                      member={m}
+                      tasks={tasksByMember.get(m.id) ?? []}
+                      projectsById={projectsById}
+                      canRemove={canRemove}
+                      onRemove={() => setConfirmRemove(m)}
+                    />
+                  </div>
+                )}
+              </Fragment>
             )
           })}
         </div>
