@@ -33,6 +33,10 @@ interface DayCell {
   pastClear: boolean
   /** Past day where at least one task is still open (counts as overdue). */
   pastOverdue: boolean
+  /** True for the first column in the visible week AND for any
+   *  column where the calendar month changed since the previous one.
+   *  Drives whether the header renders "Jun 30" or just "30". */
+  showMonth: boolean
 }
 
 const PRIORITY_COLOR_VAR: Record<Priority, string> = {
@@ -97,6 +101,8 @@ export function WeekTimeline({ tasks, members }: WeekTimelineProps) {
         dayTasks.every((t) => t.status === 'done')
       const pastOverdue =
         isPast && dayTasks.some((t) => t.status !== 'done' && isOverdue(iso))
+      // First column or month change → show the month label.
+      const showMonth = i === 0 || date.getMonth() !== out[i - 1]?.date.getMonth()
       out.push({
         date,
         iso,
@@ -106,21 +112,25 @@ export function WeekTimeline({ tasks, members }: WeekTimelineProps) {
         isPast,
         pastClear,
         pastOverdue,
+        showMonth,
       })
     }
 
-    // Range label — "Jun 22 – Jun 28" / "Jun 29 – Jul 5". Used in the
-    // nav header so the user knows which week they're paging through.
+    // Range label — "This Week — Jun 30 – Jul 6, 2026" for the
+    // current week, "Jun 30 – Jul 6, 2026" otherwise. Always carries
+    // the year so the user can orient themselves when paging back
+    // months at a time. The `today` reference here is the same
+    // wall-clock `now()` the cells were computed from, so the year
+    // matches the visible columns.
     const first = out[0]?.date
     const last = out[6]?.date
     const fmt = (d: Date) =>
       d.toLocaleDateString(undefined, { month: 'short', day: 'numeric' })
-    const label =
-      first && last
-        ? weekOffset === 0
-          ? 'This week'
-          : `${fmt(first)} – ${fmt(last)}`
-        : ''
+    let label = ''
+    if (first && last) {
+      const range = `${fmt(first)} – ${fmt(last)}, ${last.getFullYear()}`
+      label = weekOffset === 0 ? `This Week — ${range}` : range
+    }
 
     return { cells: out, rangeLabel: label }
   }, [tasks, weekOffset])
@@ -238,7 +248,9 @@ function DayColumn({
               'text-[11px] uppercase tracking-[0.5px]',
               cell.isToday
                 ? 'font-bold text-[var(--accent-primary)]'
-                : 'font-semibold text-[var(--text-secondary)]',
+                : cell.isPast
+                  ? 'font-semibold text-[var(--text-muted)]'
+                  : 'font-semibold text-[var(--text-secondary)]',
             )}
           >
             {cell.label}
@@ -251,7 +263,12 @@ function DayColumn({
                 : 'text-[var(--text-muted)]',
             )}
           >
-            {monthShort} {dayNumber}
+            {/* Month name surfaces only on the first column of the
+                visible week and any column where the month changed
+                from the previous day. Everywhere else just the day
+                number — keeps the row clean while still flagging
+                month boundaries. */}
+            {cell.showMonth ? `${monthShort} ${dayNumber}` : dayNumber}
           </span>
         </div>
         <DayIndicator cell={cell} />

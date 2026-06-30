@@ -1,15 +1,16 @@
 /**
  * Date helpers for the dashboard and other time-relative views.
  *
- * `now()` returns a fixed demo timestamp so the seeded dashboard buckets
- * stay populated no matter when the app is opened. Swap the constant for
- * `new Date()` once the backend is real.
+ * `now()` previously returned a fixed demo timestamp so the seeded
+ * mock dashboard always rendered with populated buckets. The app now
+ * runs on live Atlas / Sheets data, so the constant has been retired
+ * and `now()` returns the real wall-clock time. Mock-mode fixtures
+ * (still anchored to their old seed dates) will read as "stale" in
+ * demo mode — acceptable trade-off since the live data sources are
+ * the canonical view.
  */
-
-const DEMO_NOW = new Date('2026-05-22T18:00:00Z')
-
 export function now(): Date {
-  return new Date(DEMO_NOW)
+  return new Date()
 }
 
 /**
