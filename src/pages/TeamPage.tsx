@@ -9,7 +9,6 @@ import {
 import { ConfirmModal } from '@/components/shared/ConfirmModal'
 import { InviteMemberModal } from '@/components/team/InviteMemberModal'
 import { TeamMemberCard } from '@/components/team/TeamMemberCard'
-import { TeamMemberPanel } from '@/components/team/TeamMemberPanel'
 import { useAuth } from '@/data/auth'
 import { useData } from '@/data/store'
 import { useDocumentTitle } from '@/hooks/useDocumentTitle'
@@ -47,7 +46,7 @@ export default function TeamPage() {
     [projects],
   )
 
-  const [selectedMember, setSelectedMember] = useState<TeamMember | null>(null)
+  const [expandedId, setExpandedId] = useState<string | null>(null)
   const [inviteOpen, setInviteOpen] = useState(false)
   const [confirmRemove, setConfirmRemove] = useState<TeamMember | null>(null)
   const [searchQuery, setSearchQuery] = useState('')
@@ -134,7 +133,7 @@ export default function TeamPage() {
     const name = confirmRemove.name
     await removeTeamMember(confirmRemove.id)
     setConfirmRemove(null)
-    setSelectedMember(null)
+    setExpandedId(null)
     toast.success(`${name} removed.`)
   }
 
@@ -302,40 +301,36 @@ export default function TeamPage() {
           )}
         </div>
       ) : (
+        // 2-column grid (1-column on mobile). The expanded card claims
+        // the full row via md:col-span-2 so its body has real horizontal
+        // space for the two-line task cards. Adjacent siblings reflow
+        // to the next available cell.
         <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
-          {visibleMembers.map((m) => (
-            <TeamMemberCard
-              key={m.id}
-              member={m}
-              tasks={tasksByMember.get(m.id) ?? []}
-              onOpen={() => setSelectedMember(m)}
-            />
-          ))}
+          {visibleMembers.map((m) => {
+            const isExpanded = expandedId === m.id
+            const canRemove =
+              isPM && m.id !== currentUser.id && dataSource !== 'atlas'
+            return (
+              <div
+                key={m.id}
+                className={isExpanded ? 'md:col-span-2' : undefined}
+              >
+                <TeamMemberCard
+                  member={m}
+                  tasks={tasksByMember.get(m.id) ?? []}
+                  projectsById={projectsById}
+                  expanded={isExpanded}
+                  onToggle={() =>
+                    setExpandedId((prev) => (prev === m.id ? null : m.id))
+                  }
+                  canRemove={canRemove}
+                  onRemove={() => setConfirmRemove(m)}
+                />
+              </div>
+            )
+          })}
         </div>
       )}
-
-      {/* Slide-over detail panel — replaces the old inline accordion.
-          When `selectedMember` is null the panel renders nothing;
-          mounting it re-plays the slideInRight keyframe. PM-only
-          remove action lives inside the panel. */}
-      <TeamMemberPanel
-        member={selectedMember}
-        tasks={
-          selectedMember
-            ? (tasksByMember.get(selectedMember.id) ?? [])
-            : []
-        }
-        projectsById={projectsById}
-        canRemove={
-          selectedMember
-            ? isPM &&
-              selectedMember.id !== currentUser.id &&
-              dataSource !== 'atlas'
-            : false
-        }
-        onClose={() => setSelectedMember(null)}
-        onRemove={() => selectedMember && setConfirmRemove(selectedMember)}
-      />
 
       <InviteMemberModal
         open={inviteOpen}

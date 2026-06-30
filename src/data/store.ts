@@ -109,6 +109,11 @@ import {
 } from './types'
 
 const MUTATION_DELAY_MS = 800
+/** A single failed fetch (transient network blip, brief Atlas
+ *  hiccup) shouldn't flag the whole app red. We hide the
+ *  "Sync error" indicator until this many refreshes have failed
+ *  in a row. Any successful load resets the counter. */
+const SYNC_ERROR_THRESHOLD = 3
 const ATLAS_REFRESH_INTERVAL_MS = 60_000
 const SHEETS_REFRESH_INTERVAL_FALLBACK_MS = 15 * 60 * 1000
 /** Cadence for the today-only meeting refresh. Catches meetings that
@@ -663,6 +668,11 @@ export function DataProvider({ children }: { children: ReactNode }) {
   )
   const [lastSynced, setLastSynced] = useState<Date | null>(null)
   const [syncError, setSyncError] = useState<string | null>(null)
+  // Consecutive-failure counter: a single bad request shouldn't flag
+  // the whole app as "Sync error" — the next background refresh
+  // usually fixes it. Only surface the error after the threshold,
+  // and reset on any clean load.
+  const consecutiveSyncFailuresRef = useRef(0)
   const [isRefreshing, setIsRefreshing] = useState<boolean>(false)
   const [snapshotIndex, setSnapshotIndex] = useState<{
     tasksById: ReadonlyMap<string, Task>
@@ -1117,11 +1127,22 @@ export function DataProvider({ children }: { children: ReactNode }) {
         meetingsById: new Map(effective.meetings.map((m) => [m.id, m])),
       })
       setLastSynced(new Date(effective.loadedAt))
-      setSyncError(
-        effective.errors.length > 0
-          ? effective.errors.map((e) => `${e.source}: ${e.message}`).join('; ')
-          : null,
-      )
+      // Partial-load errors count as a failure for threshold purposes
+      // but don't immediately flag the UI — the next background tick
+      // typically clears them. Clean loads reset the counter.
+      if (effective.errors.length > 0) {
+        consecutiveSyncFailuresRef.current += 1
+        if (consecutiveSyncFailuresRef.current >= SYNC_ERROR_THRESHOLD) {
+          setSyncError(
+            effective.errors
+              .map((e) => `${e.source}: ${e.message}`)
+              .join('; '),
+          )
+        }
+      } else {
+        consecutiveSyncFailuresRef.current = 0
+        setSyncError(null)
+      }
     },
     [],
   )
@@ -1187,7 +1208,12 @@ export function DataProvider({ children }: { children: ReactNode }) {
           meetingsMode: includeMeetings ? 'fresh' : 'preserve-prior',
         })
       } catch (err) {
-        setSyncError(err instanceof Error ? err.message : String(err))
+        // Same throttling rule as the partial-error path — a single
+        // network blip shouldn't paint the bar red.
+        consecutiveSyncFailuresRef.current += 1
+        if (consecutiveSyncFailuresRef.current >= SYNC_ERROR_THRESHOLD) {
+          setSyncError(err instanceof Error ? err.message : String(err))
+        }
       } finally {
         if (mode === 'initial') setIsInitialLoading(false)
         setIsRefreshing(false)
@@ -1520,7 +1546,10 @@ export function DataProvider({ children }: { children: ReactNode }) {
       setSheetsDiagnostics(null)
       setSheetsRawRowsByTaskId(new Map())
       const message = err instanceof Error ? err.message : String(err)
-      setSyncError(message)
+      consecutiveSyncFailuresRef.current += 1
+      if (consecutiveSyncFailuresRef.current >= SYNC_ERROR_THRESHOLD) {
+        setSyncError(message)
+      }
       // Failure embed — gated by sheets_sync_failed toggle. Useful when
       // the auth token has expired or the spreadsheet is temporarily
       // 5xx-ing; saves the user from finding out hours later.
