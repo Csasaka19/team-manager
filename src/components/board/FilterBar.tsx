@@ -26,8 +26,10 @@ interface FilterBarProps {
   showUnassignedOption?: boolean
 }
 
+// Compact form: dropdowns are sized to their content (min-w-fit) so the
+// row stays tight. Search still flexes — see the input wrapper below.
 const SELECT_CLASS =
-  'h-9 rounded-md border border-[var(--border-subtle)] bg-[var(--bg-input)] px-3 text-sm text-[var(--text-primary)] outline-none transition-colors focus:border-[var(--accent-primary)] focus:ring-2 focus:ring-[var(--accent-focus)]'
+  'h-8 min-w-fit rounded-md border border-[var(--border-subtle)] bg-[var(--bg-input)] px-2 text-sm text-[var(--text-primary)] outline-none transition-colors focus:border-[var(--accent-primary)] focus:ring-2 focus:ring-[var(--accent-focus)]'
 
 export function FilterBar({
   projects,
@@ -58,7 +60,11 @@ export function FilterBar({
   }, [filters.search])
 
   return (
-    <div className="flex flex-col gap-2 md:flex-row md:flex-wrap md:items-center md:gap-3">
+    // Toolbar wrapper — bg-muted/30 tint with rounded corners and a
+    // single padded row. Filters + search share the bar; nothing
+    // floats outside. On mobile the row wraps so each control still
+    // fits without horizontal scroll.
+    <div className="flex flex-wrap items-center gap-2 rounded-lg bg-[color-mix(in_srgb,var(--bg-elevated)_30%,transparent)] p-2">
       {!hideProjectFilter && (
         <label className="flex flex-col gap-1 md:flex-none">
           <span className="sr-only">Project</span>
@@ -115,7 +121,7 @@ export function FilterBar({
         </select>
       </label>
 
-      <div className="relative flex-1 md:min-w-[200px]">
+      <div className="relative min-w-[200px] flex-1">
         <Search
           className="pointer-events-none absolute left-2.5 top-1/2 h-4 w-4 -translate-y-1/2 text-[var(--text-muted)]"
           aria-hidden="true"
@@ -124,7 +130,7 @@ export function FilterBar({
           type="search"
           aria-label="Search tasks"
           placeholder="Search tasks…"
-          className="h-9 w-full rounded-md border border-[var(--border-subtle)] bg-[var(--bg-input)] pl-8 pr-3 text-sm text-[var(--text-primary)] placeholder:text-[var(--text-muted)] outline-none transition-colors focus:border-[var(--accent-primary)] focus:ring-2 focus:ring-[var(--accent-focus)]"
+          className="h-8 w-full rounded-md border border-[var(--border-subtle)] bg-[var(--bg-input)] pl-8 pr-3 text-sm text-[var(--text-primary)] placeholder:text-[var(--text-muted)] outline-none transition-colors focus:border-[var(--accent-primary)] focus:ring-2 focus:ring-[var(--accent-focus)]"
           value={searchInput}
           onChange={(e) => setSearchInput(e.target.value)}
         />

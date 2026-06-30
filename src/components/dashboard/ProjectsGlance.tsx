@@ -1,7 +1,7 @@
 import { useMemo } from 'react'
 import { Link } from 'react-router-dom'
+import { FolderPlus, Plus } from 'lucide-react'
 import { isOverdue } from '@/lib/date-utils'
-import { cn } from '@/lib/utils'
 import type { Project, Task } from '@/data/types'
 
 interface ProjectsGlanceProps {
@@ -47,10 +47,25 @@ export function ProjectsGlance({ projects, tasks }: ProjectsGlanceProps) {
 
   if (active.length === 0) {
     return (
-      <div className="rounded-lg border border-dashed border-[var(--border-subtle)] bg-[var(--bg-surface)]/40 px-6 py-8 text-center">
-        <p className="text-sm text-[var(--text-secondary)]">
-          No active projects to glance at.
+      <div className="flex flex-col items-center justify-center gap-3 rounded-lg border border-dashed border-[var(--border-subtle)] bg-[var(--bg-surface)]/40 px-6 py-10 text-center">
+        <FolderPlus
+          className="h-8 w-8 text-[var(--text-muted)]"
+          strokeWidth={1.5}
+          aria-hidden="true"
+        />
+        <p className="text-sm font-medium text-[var(--text-secondary)]">
+          No projects yet
         </p>
+        {/* `?new=1` is the same deep-link the ProjectsPage uses to
+            auto-open the create modal. Non-PMs land on /projects with
+            the param stripped (the page gates the modal on isPM). */}
+        <Link
+          to="/projects?new=1"
+          className="inline-flex h-9 items-center gap-1.5 rounded-md bg-[var(--accent-primary)] px-4 text-sm font-medium text-[var(--text-inverse)] transition-colors hover:bg-[var(--accent-hover)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent-focus)]"
+        >
+          <Plus className="h-4 w-4" aria-hidden="true" />
+          New Project
+        </Link>
       </div>
     )
   }
@@ -81,10 +96,19 @@ function MiniProjectCard({
   project: Project
   stats: ProjectStats
 }) {
+  // Open/done ratio for the thin linear bar below the stats. We use
+  // open+done (not stats.total) so partially-loaded data doesn't divide
+  // the bar against ghost tasks; the values are interchangeable in
+  // practice since `total` already excludes nothing.
+  const ratioDenominator = stats.open + stats.done
+  const donePct =
+    ratioDenominator === 0 ? 0 : (stats.done / ratioDenominator) * 100
+
   return (
     <Link
       to={`/projects/${project.id}`}
-      className="block w-[200px] shrink-0 rounded-lg border border-[var(--border-subtle)] bg-[var(--bg-surface)] p-3 transition-colors hover:border-[var(--border-default)] hover:bg-[var(--bg-elevated)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent-focus)]"
+      title={`Click to filter board to ${project.name}`}
+      className="group block w-[200px] shrink-0 cursor-pointer rounded-lg border border-[var(--border-subtle)] bg-[var(--bg-surface)] p-3 transition-all duration-150 hover:border-[color-mix(in_srgb,var(--accent-primary)_50%,transparent)] hover:shadow-lg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent-focus)]"
     >
       <div className="flex items-center gap-2">
         <span
@@ -101,19 +125,34 @@ function MiniProjectCard({
         <ProgressRing pct={stats.pct} />
       </div>
 
-      <p className="mt-2 text-center text-[11px] tabular-nums text-[var(--text-secondary)]">
+      <div className="mt-2 flex flex-wrap items-center justify-center gap-1.5 text-[11px] tabular-nums text-[var(--text-secondary)]">
         <span>{stats.open} open</span>
-        <span aria-hidden="true"> · </span>
-        <span
-          className={cn(
-            stats.overdue > 0
-              ? 'font-medium text-[var(--priority-critical)]'
-              : 'text-[var(--text-muted)]',
-          )}
-        >
-          {stats.overdue} overdue
-        </span>
-      </p>
+        {stats.overdue > 0 && (
+          <span
+            className="inline-flex items-center rounded-full bg-[color-mix(in_srgb,var(--priority-critical)_15%,transparent)] px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-[0.5px] text-[var(--priority-critical)]"
+            title={`${stats.overdue} overdue ${stats.overdue === 1 ? 'task' : 'tasks'}`}
+          >
+            {stats.overdue} overdue
+          </span>
+        )}
+      </div>
+
+      {/* Thin linear progress mirror of the ring — gives the eye a
+          horizontal reading of the open/done split alongside the
+          radial one. */}
+      <div
+        className="mt-2 h-1 w-full overflow-hidden rounded-full bg-[var(--bg-elevated)]"
+        role="progressbar"
+        aria-valuemin={0}
+        aria-valuemax={100}
+        aria-valuenow={Math.round(donePct)}
+        aria-label={`${Math.round(donePct)}% done`}
+      >
+        <div
+          className="h-full bg-[var(--status-done)] transition-[width] duration-200"
+          style={{ width: `${donePct}%` }}
+        />
+      </div>
     </Link>
   )
 }
@@ -158,13 +197,16 @@ function ProgressRing({ pct }: { pct: number | null }) {
           style={{ transition: 'stroke-dasharray 300ms ease-out' }}
         />
       )}
+      {/* Center label — bumped from 9 to 11 SVG units (≈18px at the
+          rendered 56×56 size) and weight 700 for the text-lg /
+          font-bold treatment the spec calls for. */}
       <text
         x="18"
         y="18"
         textAnchor="middle"
         dominantBaseline="central"
-        fontSize="9"
-        fontWeight="600"
+        fontSize="11"
+        fontWeight="700"
         fill="var(--text-primary)"
       >
         {display}

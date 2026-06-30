@@ -53,28 +53,30 @@ export function AtlasDataOverview() {
 
   return (
     <section aria-labelledby="atlas-data-overview-heading">
-      <h2
-        id="atlas-data-overview-heading"
-        className="inline-flex items-center gap-2 text-lg font-semibold text-[var(--text-primary)]"
-      >
-        <Database className="h-4 w-4" aria-hidden="true" />
-        Atlas Data Overview
-      </h2>
-      <p className="mt-1 text-sm text-[var(--text-secondary)]">
-        What the app currently sees from the configured Atlas vault.
-      </p>
+      <div className="border-b border-[var(--border-subtle)] pb-3 mb-4">
+        <h2
+          id="atlas-data-overview-heading"
+          className="inline-flex items-center gap-2 text-lg font-semibold text-[var(--text-primary)]"
+        >
+          <Database className="h-4 w-4" aria-hidden="true" />
+          Atlas Data Overview
+        </h2>
+        <p className="mt-1 text-sm text-[var(--text-secondary)]">
+          What the app currently sees from the configured Atlas vault.
+        </p>
+      </div>
 
-      <div className="mt-5 space-y-4 rounded-lg border border-[var(--border-subtle)] bg-[var(--bg-surface)] p-4 md:p-5">
+      <div className="space-y-4">
         <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
           <StatTile label="Projects" value={String(projects.length)}>
             {projectSlugs.length > 0 && (
-              <p className="mt-1 truncate font-mono text-[11px] text-[var(--text-muted)]">
+              <p className="mt-2 truncate font-mono text-xs text-[var(--text-muted)]">
                 {projectSlugs.join(', ')}
               </p>
             )}
           </StatTile>
           <StatTile label="Tasks" value={String(tasks.length)}>
-            <p className="mt-1 text-[11px] text-[var(--text-muted)]">
+            <p className="mt-2 text-xs text-[var(--text-muted)]">
               across all projects
             </p>
           </StatTile>
@@ -83,19 +85,21 @@ export function AtlasDataOverview() {
             value={String(teamMembers.length)}
           >
             {memberNames.length > 0 && (
-              <p className="mt-1 truncate text-[11px] text-[var(--text-muted)]">
+              <p className="mt-2 truncate font-mono text-xs text-[var(--text-muted)]">
                 {memberNames.join(', ')}
               </p>
             )}
           </StatTile>
           <StatTile label="Manifests loaded" value={String(meetings.length)}>
-            <p className="mt-1 text-[11px] text-[var(--text-muted)]">
+            <p className="mt-2 text-xs text-[var(--text-muted)]">
               one per (project, date) with extractions
             </p>
           </StatTile>
         </div>
 
-        <div className="flex flex-wrap items-center justify-between gap-3 border-t border-[var(--border-subtle)] pt-3 text-xs text-[var(--text-secondary)]">
+        {/* Footer pinned at the bottom of the card body — last-sync
+            line on the left, refresh action on the right. */}
+        <div className="flex flex-wrap items-center justify-between gap-3 border-t border-[var(--border-subtle)] pt-3 text-xs text-[var(--text-muted)]">
           <span>
             Last sync:{' '}
             <span className="font-medium text-[var(--text-primary)] tabular-nums">
@@ -147,13 +151,15 @@ function StatTile({ label, value, children }: StatTileProps) {
   return (
     <div
       className={cn(
-        'rounded-md border border-[var(--border-subtle)] bg-[var(--bg-elevated)]/30 p-3',
+        // Per spec: rounded-lg, border, muted bg, generous p-4. The
+        // tile reads as its own surface inside the section card.
+        'rounded-lg border border-[var(--border-subtle)] bg-[color-mix(in_srgb,var(--bg-elevated)_30%,transparent)] p-4',
       )}
     >
-      <p className="text-[10px] font-semibold uppercase tracking-[0.5px] text-[var(--text-secondary)]">
+      <p className="text-xs uppercase tracking-wide text-[var(--text-muted)]">
         {label}
       </p>
-      <p className="mt-0.5 text-xl font-semibold text-[var(--text-primary)] tabular-nums">
+      <p className="mt-1 text-2xl font-bold text-[var(--text-primary)] tabular-nums">
         {value}
       </p>
       {children}

@@ -129,31 +129,39 @@ export function AtlasSection() {
 
   return (
     <section aria-labelledby="atlas-heading">
-      <div className="flex flex-wrap items-center gap-2">
-        <h2
-          id="atlas-heading"
-          className="inline-flex items-center gap-2 text-lg font-semibold text-[var(--text-primary)]"
-        >
-          <KeyRound className="h-4 w-4" aria-hidden="true" />
-          Atlas API Connection
-        </h2>
-        <StatusBadge status={status} />
+      {/* Heading row with the status pill. The bottom border + pb/mb
+          act as the divider between the section's identity (icon +
+          title + description) and its body (form fields), per the
+          settings card spec. */}
+      <div className="border-b border-[var(--border-subtle)] pb-3 mb-4">
+        <div className="flex flex-wrap items-center gap-2">
+          <h2
+            id="atlas-heading"
+            className="inline-flex items-center gap-2 text-lg font-semibold text-[var(--text-primary)]"
+          >
+            <KeyRound className="h-4 w-4" aria-hidden="true" />
+            Atlas API Connection
+          </h2>
+          <StatusBadge status={status} />
+        </div>
+        <p className="mt-1 text-sm text-[var(--text-secondary)]">
+          Enter the Atlas Control Center API URL and read token. Data from Atlas
+          powers the <code className="rounded bg-[var(--bg-elevated)] px-1 py-0.5 font-mono text-[12px]">/atlas</code>{' '}
+          section (feed, tasks, summaries). On the team Tailscale network, use{' '}
+          <code className="rounded bg-[var(--bg-elevated)] px-1 py-0.5 font-mono text-[12px]">
+            http://100.65.101.96:4005/api/public
+          </code>{' '}
+          for direct access; otherwise use the public Funnel URL.
+        </p>
       </div>
-      <p className="mt-1 text-sm text-[var(--text-secondary)]">
-        Enter the Atlas Control Center API URL and read token. Data from Atlas
-        powers the <code className="rounded bg-[var(--bg-elevated)] px-1 py-0.5 font-mono text-[12px]">/atlas</code>{' '}
-        section (feed, tasks, summaries). On the team Tailscale network, use{' '}
-        <code className="rounded bg-[var(--bg-elevated)] px-1 py-0.5 font-mono text-[12px]">
-          http://100.65.101.96:4005/api/public
-        </code>{' '}
-        for direct access; otherwise use the public Funnel URL.
-      </p>
 
-      <div className="mt-5 space-y-4 rounded-lg border border-[var(--border-subtle)] bg-[var(--bg-surface)] p-4 md:p-5">
+      {/* Form body — no inner border. The outer SettingsCard wrapper
+          on the page now provides the section container. */}
+      <div className="space-y-4">
         <div>
           <label
             htmlFor="atlas-base-url"
-            className="block text-[11px] font-semibold uppercase tracking-[0.5px] text-[var(--text-secondary)]"
+            className="block text-xs font-semibold uppercase tracking-wide text-[var(--text-muted)]"
           >
             API Base URL
             <span className="ml-2 normal-case font-medium text-[10px] text-[var(--text-muted)]">
@@ -175,7 +183,7 @@ export function AtlasSection() {
         <div>
           <label
             htmlFor="atlas-token"
-            className="block text-[11px] font-semibold uppercase tracking-[0.5px] text-[var(--text-secondary)]"
+            className="block text-xs font-semibold uppercase tracking-wide text-[var(--text-muted)]"
           >
             API Token
             <span className="ml-2 normal-case font-medium text-[10px] text-[var(--text-muted)]">

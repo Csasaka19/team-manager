@@ -16,7 +16,10 @@ export function ViewToggle({ value, onChange }: ViewToggleProps) {
     <div
       role="radiogroup"
       aria-label="Board view"
-      className="inline-flex h-9 items-center gap-0.5 rounded-md border border-[var(--border-subtle)] bg-[var(--bg-surface)] p-0.5"
+      // Segmented control — track is bg-elevated; the active option
+      // floats above on bg-surface with a subtle drop-shadow so it
+      // reads like an inset tab.
+      className="inline-flex h-9 items-center gap-0.5 rounded-md bg-[var(--bg-elevated)] p-0.5"
     >
       <ToggleButton
         icon={Columns3}
@@ -51,9 +54,9 @@ function ToggleButton({ icon: Icon, label, active, onClick }: ToggleButtonProps)
       title={`${label} view`}
       onClick={onClick}
       className={cn(
-        'inline-flex h-7 items-center gap-1.5 rounded px-2 text-xs font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent-focus)]',
+        'inline-flex h-7 items-center gap-1.5 rounded px-2.5 text-xs font-medium transition-all focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent-focus)]',
         active
-          ? 'bg-[var(--bg-elevated)] text-[var(--text-primary)]'
+          ? 'bg-[var(--bg-surface)] text-[var(--text-primary)] shadow-sm'
           : 'text-[var(--text-secondary)] hover:text-[var(--text-primary)]',
       )}
     >

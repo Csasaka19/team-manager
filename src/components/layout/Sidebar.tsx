@@ -74,13 +74,25 @@ export function Sidebar({ mobileOpen, onMobileClose }: SidebarProps) {
         style={{ top: 'var(--banner-h, 0px)' }}
         aria-label="Primary navigation"
       >
-        <div className="flex h-14 items-center justify-center border-b border-[var(--border-subtle)] md:justify-center lg:justify-start lg:px-6">
-          <span className="font-semibold text-[15px] text-[var(--text-primary)] md:hidden lg:inline">
-            Team Manager
-          </span>
-          <span className="hidden md:inline lg:hidden text-[var(--accent-primary)] font-semibold">
+        <div className="flex h-14 items-center gap-2.5 border-b border-[var(--border-subtle)] px-3 md:justify-center md:px-0 lg:justify-start lg:px-5">
+          {/* Logo mark — accent-coloured rounded square with "TM"
+              monogram. Always visible (replaces the previous text-only
+              "TM" tablet variant). Pairs with the wordmark on
+              mobile/desktop. */}
+          <span
+            aria-hidden="true"
+            className="inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-md bg-[var(--accent-primary)] text-[11px] font-bold text-[var(--text-inverse)]"
+          >
             TM
           </span>
+          <div className="flex min-w-0 flex-col md:hidden lg:flex">
+            <span className="truncate text-sm font-bold text-[var(--text-primary)]">
+              Team Manager
+            </span>
+            <span className="truncate text-[10px] uppercase tracking-wide text-[var(--text-muted)]">
+              Workspace
+            </span>
+          </div>
         </div>
 
         <nav data-tour="sidebar" className="flex-1 overflow-y-auto py-3">
@@ -93,7 +105,11 @@ export function Sidebar({ mobileOpen, onMobileClose }: SidebarProps) {
           </ul>
         </nav>
 
-        <div className="border-t border-[var(--border-subtle)] p-2">
+        {/* Settings sits in its own footer slot — pulled out of the
+            main nav by a top border + margin so it visually reads as
+            "everything below this line is meta", not just another
+            destination. */}
+        <div className="border-t border-[var(--border-subtle)] px-2 pb-2 pt-2 mt-2">
           <NavItemLink item={settingsItem} onNavigate={onMobileClose} />
         </div>
       </aside>
@@ -114,12 +130,20 @@ function NavItemLink({ item, onNavigate }: NavItemLinkProps) {
       onClick={onNavigate}
       className={({ isActive }) =>
         cn(
-          'relative flex items-center gap-3 rounded-md px-3 py-2.5 text-sm font-medium',
-          'text-[var(--text-secondary)] hover:text-[var(--text-primary)]',
+          'relative flex items-center gap-3 rounded-md px-3 py-2.5 text-sm',
+          // Default text + hover. The hover bg uses a 60%-tinted
+          // elevated colour so inactive items get a clear "press me"
+          // affordance without competing with the active state.
+          'text-[var(--text-secondary)] hover:bg-[color-mix(in_srgb,var(--bg-elevated)_60%,transparent)] hover:text-[var(--text-primary)]',
           'transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent-focus)]',
           'md:justify-center md:px-2 md:py-2 lg:justify-start lg:px-3 lg:py-2',
-          isActive &&
-            'bg-[var(--bg-elevated)] text-[var(--text-primary)] before:absolute before:left-0 before:top-1 before:bottom-1 before:w-[2px] before:rounded-r before:bg-[var(--accent-primary)]',
+          // Active item: solid elevated bg, slightly bolder text, and
+          // a 3px-wide accent-coloured bar pinned to the left edge via
+          // a ::before pseudo-element. Bar uses inset-y-1 for visual
+          // breathing room top/bottom.
+          isActive
+            ? 'bg-[var(--bg-elevated)] font-semibold text-[var(--text-primary)] before:absolute before:left-0 before:top-1 before:bottom-1 before:w-[3px] before:rounded-r before:bg-[var(--accent-primary)]'
+            : 'font-medium',
         )
       }
       end={!item.matchNested}

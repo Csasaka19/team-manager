@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import { useSearchParams } from 'react-router-dom'
 import { FolderOpen, Plus } from 'lucide-react'
+import { isOverdue } from '@/lib/date-utils'
 import { toast } from 'sonner'
 import { ConfirmModal } from '@/components/shared/ConfirmModal'
 import { ExportMenu } from '@/components/projects/ExportMenu'
@@ -66,6 +67,31 @@ export default function ProjectsPage() {
   const archived = projects.filter((p) => p.archived)
   const visible = tab === 'active' ? active : archived
 
+  // Workspace-wide totals for the header. Counts open + overdue
+  // across ALL projects (active and archived); the header is a
+  // workspace dashboard, not a reflection of the current tab.
+  const aggregate = useMemo(() => {
+    let open = 0
+    let overdue = 0
+    for (const t of tasks) {
+      if (t.status === 'done') continue
+      open += 1
+      if (isOverdue(t.dueDate)) overdue += 1
+    }
+    return { open, overdue }
+  }, [tasks])
+
+  // Show the dashed "+ New Project" tile when there's room in the
+  // visible grid (under 4 projects) and the user is allowed to create
+  // one. Atlas-managed workspaces hide it — projects come from the
+  // vault, not the UI.
+  const showNewProjectTile =
+    tab === 'active' &&
+    isPM &&
+    dataSource !== 'atlas' &&
+    visible.length > 0 &&
+    visible.length < 4
+
   const handleCreate = async (values: ProjectFormValues) => {
     await createProject(values)
     setCreateOpen(false)
@@ -111,9 +137,39 @@ export default function ProjectsPage() {
       <header className="flex flex-wrap items-start justify-between gap-3">
         <div>
           <h1 className="text-2xl font-semibold text-[var(--text-primary)]">Projects</h1>
-          <p className="mt-1 text-sm text-[var(--text-secondary)]">
-            Click any project to open its board.
-          </p>
+          <div className="mt-1 flex flex-wrap gap-x-2 text-sm text-[var(--text-secondary)] tabular-nums">
+            <span>
+              <span className="font-semibold text-[var(--text-primary)]">
+                {projects.length}
+              </span>{' '}
+              {projects.length === 1 ? 'project' : 'projects'}
+            </span>
+            <span aria-hidden="true">·</span>
+            <span>
+              <span className="font-semibold text-[var(--text-primary)]">
+                {aggregate.open}
+              </span>{' '}
+              open {aggregate.open === 1 ? 'task' : 'tasks'}
+            </span>
+            <span aria-hidden="true">·</span>
+            <span
+              className={cn(
+                aggregate.overdue > 0 && 'text-[var(--priority-critical)]',
+              )}
+            >
+              <span
+                className={cn(
+                  'font-semibold',
+                  aggregate.overdue > 0
+                    ? 'text-[var(--priority-critical)]'
+                    : 'text-[var(--text-primary)]',
+                )}
+              >
+                {aggregate.overdue}
+              </span>{' '}
+              overdue
+            </span>
+          </div>
         </div>
         {isPM && (
           <div className="flex items-center gap-2">
@@ -164,7 +220,7 @@ export default function ProjectsPage() {
           </p>
         </div>
       ) : (
-        <div className="grid grid-cols-1 gap-4 md:grid-cols-2 lg:grid-cols-3">
+        <div className="grid grid-cols-1 items-start gap-4 sm:grid-cols-2 lg:grid-cols-3">
           {visible.map((p) => (
             <ProjectCard
               key={p.id}
@@ -183,6 +239,17 @@ export default function ProjectsPage() {
               }
             />
           ))}
+          {showNewProjectTile && (
+            <button
+              type="button"
+              onClick={() => setCreateOpen(true)}
+              aria-label="New project"
+              className="group flex min-h-[200px] flex-col items-center justify-center gap-2 rounded-lg border-2 border-dashed border-[color-mix(in_srgb,var(--text-muted)_30%,transparent)] bg-transparent p-4 text-[var(--text-muted)] transition-colors hover:border-[color-mix(in_srgb,var(--accent-primary)_50%,transparent)] hover:text-[var(--accent-primary)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent-focus)]"
+            >
+              <Plus className="h-6 w-6" strokeWidth={1.5} aria-hidden="true" />
+              <span className="text-sm font-medium">New Project</span>
+            </button>
+          )}
         </div>
       )}
 

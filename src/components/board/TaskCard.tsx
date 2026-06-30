@@ -1,4 +1,4 @@
-import { AlertTriangle, Check, CloudOff, RotateCw } from 'lucide-react'
+import { AlertTriangle, Check, CloudOff, RotateCw, User } from 'lucide-react'
 import { useTaskPanel } from '@/data/task-panel'
 import { useDraggable } from '@dnd-kit/core'
 import { CSS } from '@dnd-kit/utilities'
@@ -138,8 +138,10 @@ export function TaskCard({
       aria-label={`Open task ${task.title}`}
       aria-selected={selected || bulkSelected || undefined}
       className={cn(
-        'group relative select-none rounded-lg border border-[var(--border-subtle)] bg-[var(--bg-surface)] p-3 text-left transition-[border-color,box-shadow] duration-150',
-        'hover:border-[var(--border-default)] hover:shadow-[0_2px_8px_rgba(0,0,0,0.2)]',
+        'group relative cursor-pointer select-none rounded-lg border border-[var(--border-subtle)] bg-[var(--bg-surface)] p-3 text-left transition-all duration-150',
+        // Lift effect on hover: drop-shadow grows, border picks up a hint
+        // of accent colour, and the card nudges up 1px to feel grabbable.
+        'hover:-translate-y-px hover:border-[color-mix(in_srgb,var(--accent-primary)_30%,var(--border-default))] hover:shadow-[0_8px_16px_rgba(0,0,0,0.25)]',
         'focus-visible:border-[var(--accent-primary)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent-focus)]',
         // Subtle 2px red left border when overdue. Beats the regular border
         // so it stays visible even when the card is also selected / focused.
@@ -180,26 +182,35 @@ export function TaskCard({
         </span>
       )}
       <div className="mb-2 flex items-center gap-2">
-        {project && (
-          <span
-            className="h-2 w-2 shrink-0 rounded-full"
-            style={{ backgroundColor: project.color }}
-            aria-hidden="true"
-          />
+        {project ? (
+          <>
+            <span
+              className="h-2 w-2 shrink-0 rounded-full"
+              style={{ backgroundColor: project.color }}
+              aria-hidden="true"
+            />
+            <span className="truncate text-[10px] font-semibold uppercase tracking-widest text-[var(--text-muted)]">
+              {project.name}
+            </span>
+          </>
+        ) : (
+          // Tasks that never resolved to a project show "No project" in
+          // the muted tone — distinct from a real project label, but
+          // still occupies the same row so the visual rhythm holds.
+          <span className="truncate text-[10px] font-semibold uppercase tracking-widest text-[var(--text-muted)]">
+            No project
+          </span>
         )}
-        <span className="truncate text-[11px] uppercase tracking-[0.5px] text-[var(--text-secondary)]">
-          {project?.name ?? 'Unknown project'}
-        </span>
       </div>
 
       <h3
-        className="line-clamp-2 text-[15px] font-medium leading-snug text-[var(--text-primary)]"
+        className="line-clamp-2 text-sm font-medium leading-snug text-[var(--text-primary)]"
         title={task.title}
       >
         {task.title}
       </h3>
 
-      <div className="mt-3 flex flex-wrap items-center gap-2">
+      <div className="mt-3 flex flex-wrap items-center justify-between gap-2">
         <PriorityBadge priority={task.priority} />
         {due && (
           <span
@@ -253,8 +264,15 @@ export function TaskCard({
         {assignee ? (
           <Avatar name={assignee.name} size="sm" title={assignee.name} />
         ) : (
-          <span className="inline-flex h-6 items-center rounded-full bg-[var(--bg-elevated)] px-2 text-[10px] font-medium uppercase tracking-[0.5px] text-[var(--text-muted)]">
-            Unassigned
+          // Ghost avatar — same circular footprint as the real Avatar so
+          // the card baseline doesn't shift, with a dashed border and a
+          // muted user glyph signalling "no one yet".
+          <span
+            className="inline-flex h-6 w-6 shrink-0 items-center justify-center rounded-full border border-dashed border-[var(--border-default)] text-[var(--text-muted)]"
+            aria-label="Unassigned"
+            title="Unassigned"
+          >
+            <User className="h-3 w-3" strokeWidth={1.5} aria-hidden="true" />
           </span>
         )}
       </div>

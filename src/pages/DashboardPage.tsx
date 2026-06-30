@@ -185,19 +185,31 @@ export default function DashboardPage() {
           data-tour="summary"
           className="grid grid-cols-1 gap-3 md:grid-cols-2 md:gap-4 lg:grid-cols-4"
         >
-          <SummaryCard icon={LayoutGrid} label="Open Tasks" value={summary.open} />
+          <SummaryCard
+            icon={LayoutGrid}
+            label="Open Tasks"
+            value={summary.open}
+            accent="blue"
+          />
           <SummaryCard
             icon={AlertTriangle}
             label="Overdue"
             value={summary.overdue}
+            accent="red"
             highlightWhenPositive
             pulseWhenPositive
           />
-          <SummaryCard icon={Calendar} label="Due This Week" value={summary.dueThisWeek} />
+          <SummaryCard
+            icon={Calendar}
+            label="Due This Week"
+            value={summary.dueThisWeek}
+            accent="amber"
+          />
           <SummaryCard
             icon={CheckCircle}
             label="Completed This Week"
             value={summary.completedThisWeek}
+            accent="green"
           />
         </div>
       </CollapsibleSection>

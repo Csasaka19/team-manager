@@ -48,8 +48,13 @@ export function ProjectCard({
 
   return (
     <article
+      // 4px coloured top border = the project's accent. Card stays
+      // `rounded-lg` so the top corners stay rounded over the border.
+      // min-h-[200px] keeps the grid visually consistent — short
+      // descriptions don't shrink the card relative to siblings.
+      style={{ borderTopColor: project.color }}
       className={cn(
-        'group relative flex cursor-pointer flex-col gap-3 rounded-lg border border-[var(--border-subtle)] bg-[var(--bg-surface)] p-4 transition-all duration-150 hover:border-[var(--border-default)] hover:shadow-[0_2px_8px_rgba(0,0,0,0.2)]',
+        'group relative flex min-h-[200px] cursor-pointer flex-col gap-3 rounded-lg border border-[var(--border-subtle)] border-t-4 bg-[var(--bg-surface)] p-4 transition-all duration-150 hover:border-[var(--border-default)] hover:shadow-[0_2px_8px_rgba(0,0,0,0.2)]',
         project.archived && 'opacity-70',
       )}
     >
@@ -58,10 +63,17 @@ export function ProjectCard({
         aria-label={`Open ${project.name}`}
         className="absolute inset-0 z-0 rounded-lg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent-focus)]"
       />
-      <ArrowRight
+      {/* Quick-action label that materialises on hover. The whole card
+          already navigates to /projects/<id> (board tab is the
+          default), so this is a discoverable hint rather than a
+          separate route — labelled prose beats an unlabelled arrow. */}
+      <span
         aria-hidden="true"
-        className="pointer-events-none absolute bottom-3 right-3 h-4 w-4 translate-x-[-4px] text-[var(--text-muted)] opacity-0 transition-all duration-150 group-hover:translate-x-0 group-hover:opacity-100"
-      />
+        className="pointer-events-none absolute bottom-3 right-3 inline-flex items-center gap-1 text-xs font-medium text-[var(--accent-primary)] opacity-0 transition-all duration-150 translate-x-[-4px] group-hover:translate-x-0 group-hover:opacity-100"
+      >
+        View Board
+        <ArrowRight className="h-3.5 w-3.5" />
+      </span>
 
       <div className="relative z-10 flex items-start justify-between gap-2 pointer-events-none">
         <div className="flex min-w-0 items-center gap-2">
@@ -114,13 +126,15 @@ export function ProjectCard({
         )}
       </p>
 
-      <div className="relative z-10 flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-[var(--text-secondary)] tabular-nums pointer-events-none">
+      <div className="pointer-events-none relative z-10 flex flex-wrap items-center gap-2 text-xs text-[var(--text-secondary)] tabular-nums">
         <span>{open} open</span>
         {overdue > 0 && (
-          <>
-            <span aria-hidden="true">·</span>
-            <span className="text-[var(--priority-critical)]">{overdue} overdue</span>
-          </>
+          <span
+            className="inline-flex items-center rounded-full bg-[color-mix(in_srgb,var(--priority-critical)_15%,transparent)] px-2 py-0.5 text-[10px] font-semibold uppercase tracking-[0.5px] text-[var(--priority-critical)]"
+            title={`${overdue} overdue ${overdue === 1 ? 'task' : 'tasks'}`}
+          >
+            {overdue} overdue
+          </span>
         )}
         <span aria-hidden="true">·</span>
         <span>{done} done</span>

@@ -183,7 +183,7 @@ export default function MeetingsPage() {
       ) : (
         <>
           <div className="space-y-3">
-            <div className="flex flex-wrap items-center gap-3">
+            <div className="flex flex-wrap items-center gap-3 border-b border-[var(--border-subtle)] pb-3">
               <div
                 role="tablist"
                 aria-label="Filter meetings by status"
@@ -198,15 +198,24 @@ export default function MeetingsPage() {
                       role="tab"
                       aria-selected={active}
                       onClick={() => setStatus(key)}
+                      // Pill tabs — solid primary fill when active, no
+                      // chrome when inactive (just hover bg). Larger
+                      // text and pad than the other filter chips so
+                      // they read as the page's primary navigation.
                       className={cn(
-                        'inline-flex h-8 items-center gap-1.5 rounded-full border px-3 text-xs transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent-focus)]',
+                        'inline-flex items-center gap-1.5 rounded-full px-3 py-1 text-sm transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent-focus)]',
                         active
-                          ? 'border-[var(--accent-primary)] bg-[color-mix(in_srgb,var(--accent-primary)_12%,transparent)] text-[var(--accent-primary)]'
-                          : 'border-[var(--border-subtle)] text-[var(--text-secondary)] hover:border-[var(--border-default)] hover:text-[var(--text-primary)]',
+                          ? 'bg-[var(--accent-primary)] font-medium text-[var(--text-inverse)]'
+                          : 'text-[var(--text-secondary)] hover:bg-[var(--bg-elevated)] hover:text-[var(--text-primary)]',
                       )}
                     >
                       {STATUS_LABEL[key]}
-                      <span className="text-[10px] tabular-nums opacity-80">
+                      <span
+                        className={cn(
+                          'text-[10px] tabular-nums',
+                          active ? 'opacity-90' : 'opacity-70',
+                        )}
+                      >
                         {counts[key]}
                       </span>
                     </button>
@@ -294,9 +303,17 @@ export default function MeetingsPage() {
           </div>
 
           {visible.length === 0 ? (
-            <div className="rounded-lg border border-dashed border-[var(--border-subtle)] bg-[var(--bg-surface)]/40 px-6 py-10 text-center">
-              <p className="text-sm text-[var(--text-secondary)]">
-                No meetings match the current filter.
+            <div className="flex min-h-[200px] flex-col items-center justify-center rounded-lg border border-dashed border-[var(--border-subtle)] bg-[var(--bg-surface)]/40 px-6 py-10 text-center">
+              <CalendarRange
+                className="h-8 w-8 text-[var(--text-muted)]"
+                strokeWidth={1.5}
+                aria-hidden="true"
+              />
+              <p className="mt-3 text-sm text-[var(--text-secondary)]">
+                No meetings found
+              </p>
+              <p className="mt-1 text-xs text-[var(--text-muted)]">
+                Try widening the date range or clearing the status filter.
               </p>
             </div>
           ) : (

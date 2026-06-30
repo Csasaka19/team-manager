@@ -542,10 +542,19 @@ export function BoardView({ forcedProjectId }: BoardViewProps) {
               <button
                 type="button"
                 onClick={() => openCreateTask(newTaskProjectId)}
+                title="Create a new task (C)"
                 className="inline-flex h-9 items-center gap-1.5 rounded-md bg-[var(--accent-primary)] px-3 text-sm font-medium text-[var(--text-inverse)] transition-colors hover:bg-[var(--accent-hover)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent-focus)]"
               >
                 <Plus className="h-4 w-4" aria-hidden="true" />
                 New Task
+                {/* Shortcut badge — kbd-style chip showing the global
+                    "C" binding registered in src/lib/shortcuts.ts. */}
+                <kbd
+                  aria-hidden="true"
+                  className="hidden h-5 items-center justify-center rounded bg-[color-mix(in_srgb,var(--text-inverse)_25%,transparent)] px-1.5 text-[10px] font-semibold leading-none text-[var(--text-inverse)] sm:inline-flex"
+                >
+                  C
+                </kbd>
               </button>
             )}
           </div>
@@ -590,6 +599,14 @@ export function BoardView({ forcedProjectId }: BoardViewProps) {
                   bulkSelection={bulkSelection}
                   selectionActive={selectionActive}
                   onSelectToggle={handleSelectToggle}
+                  // Empty-column CTA — only PMs can create tasks, and
+                  // we still require an unarchived project for the
+                  // modal to land somewhere valid.
+                  onAddTask={
+                    isPM && projects.some((p) => !p.archived)
+                      ? () => openCreateTask(newTaskProjectId)
+                      : undefined
+                  }
                 />
               ))}
             </div>

@@ -109,10 +109,13 @@ function AtlasHeader({ host }: { host: string | null }) {
       <h1 className="text-2xl font-semibold text-[var(--text-primary)]">
         Atlas
       </h1>
-      <p className="mt-1 flex flex-wrap items-center gap-1.5 text-sm text-[var(--text-secondary)]">
+      <p className="mt-1 flex flex-wrap items-center gap-2 text-sm text-[var(--text-secondary)]">
         Read-only live feed from the Control Center vault.
         {host && (
-          <span className="inline-flex items-center gap-1 rounded-full bg-[var(--bg-elevated)] px-2 py-0.5 text-[11px] font-medium text-[var(--text-secondary)]">
+          // Toned down — was a tinted pill, now an inline muted link
+          // marker so the long Tailscale hostname doesn't dominate the
+          // subtitle.
+          <span className="inline-flex items-center gap-1 text-xs text-[var(--text-muted)]">
             <ExternalLink className="h-3 w-3" aria-hidden="true" />
             {host}
           </span>

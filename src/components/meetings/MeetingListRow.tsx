@@ -6,8 +6,10 @@ import { cn } from '@/lib/utils'
 import type { Meeting, TeamMember } from '@/data/types'
 
 /** Past meetings shouldn't read as "overdue" — they happened, that's
- *  fine. Today / Yesterday for the recent two days; weekday name for the
- *  rest of the current week (in either direction); full date otherwise. */
+ *  fine. Today / Yesterday / Tomorrow for the immediate window;
+ *  "Mon, Jun 22" weekday + abbreviated date for the rest of the
+ *  current week (gives both relative and absolute context per
+ *  feedback); full "Jun 22, 2026" beyond that. */
 function meetingDateLabel(isoDate: string): string {
   // parseLocalDate keeps YYYY-MM-DD strings on the user's calendar day —
   // `new Date(isoDate)` would UTC-midnight them and shift back a day
@@ -18,9 +20,24 @@ function meetingDateLabel(isoDate: string): string {
   if (diff === 1) return 'Yesterday'
   if (diff === -1) return 'Tomorrow'
   if (Math.abs(diff) < 7) {
-    return d.toLocaleDateString(undefined, { weekday: 'long' })
+    // "Sun, Jun 22" — weekday + abbreviated date so the reader sees
+    // both the day-of-week and the calendar number without scanning.
+    return d.toLocaleDateString(undefined, {
+      weekday: 'short',
+      month: 'short',
+      day: 'numeric',
+    })
   }
   return formatMeetingDate(isoDate)
+}
+
+/** CSS-variable colour mapping for the left-edge accent + status pill.
+ *  Same vars the board / task-card use, so the meeting palette stays
+ *  in lockstep with the rest of the app. */
+const STATUS_ACCENT_VAR: Record<Meeting['status'], string> = {
+  scheduled: '--accent-primary',
+  completed: '--status-done',
+  cancelled: '--text-muted',
 }
 
 interface MeetingListRowProps {
@@ -37,24 +54,31 @@ interface MeetingListRowProps {
   hasRecordings?: boolean
 }
 
+/** Status pill — bg/fg/border each derive from a single accent var so
+ *  the three states stay visually consistent (15% tint bg, 30% tint
+ *  border, full-strength text). Cancelled uses the muted text colour
+ *  instead of an accent so it visually recedes. */
 const STATUS_STYLE: Record<
   Meeting['status'],
-  { label: string; bg: string; fg: string }
+  { label: string; bg: string; fg: string; border: string }
 > = {
   scheduled: {
     label: 'Scheduled',
     bg: 'color-mix(in srgb, var(--accent-primary) 15%, transparent)',
     fg: 'var(--accent-primary)',
+    border: 'color-mix(in srgb, var(--accent-primary) 30%, transparent)',
   },
   completed: {
     label: 'Completed',
     bg: 'color-mix(in srgb, var(--status-done) 15%, transparent)',
     fg: 'var(--status-done)',
+    border: 'color-mix(in srgb, var(--status-done) 30%, transparent)',
   },
   cancelled: {
     label: 'Cancelled',
-    bg: 'color-mix(in srgb, var(--text-muted) 20%, transparent)',
+    bg: 'var(--bg-elevated)',
     fg: 'var(--text-muted)',
+    border: 'transparent',
   },
 }
 
@@ -81,9 +105,16 @@ export function MeetingListRow({
   return (
     <Link
       to={to}
+      // 4px left accent border + right-rounded corners read like a
+      // status-anchored card. `pl-4` ensures the inner content is
+      // padded away from the accent strip (the border eats 4px on the
+      // left edge). Hover swaps to the elevated bg for clear feedback.
+      style={{
+        borderLeftColor: `var(${STATUS_ACCENT_VAR[meeting.status]})`,
+        opacity: isCancelled ? 0.6 : undefined,
+      }}
       className={cn(
-        'flex flex-col gap-3 rounded-lg border border-[var(--border-subtle)] bg-[var(--bg-surface)] p-3 transition-colors hover:border-[var(--border-default)] hover:bg-[var(--bg-elevated)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent-focus)] md:flex-row md:items-center md:gap-4 md:p-4',
-        isCancelled && 'opacity-60',
+        'flex flex-col gap-3 rounded-r-lg border border-[var(--border-subtle)] border-l-4 bg-[var(--bg-surface)] py-3 pl-4 pr-3 transition-colors hover:border-[var(--border-default)] hover:bg-[var(--bg-elevated)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent-focus)] md:flex-row md:items-center md:gap-4 md:py-4 md:pr-4',
       )}
     >
       <div className="min-w-0 flex-1">
@@ -110,8 +141,12 @@ export function MeetingListRow({
             {meeting.title}
           </h3>
           <span
-            className="inline-flex h-5 shrink-0 items-center rounded-full px-2 text-[10px] font-semibold uppercase tracking-[0.5px]"
-            style={{ backgroundColor: status.bg, color: status.fg }}
+            className="inline-flex h-5 shrink-0 items-center rounded-full border px-2 text-[10px] font-semibold uppercase tracking-[0.5px]"
+            style={{
+              backgroundColor: status.bg,
+              color: status.fg,
+              borderColor: status.border,
+            }}
           >
             {status.label}
           </span>
@@ -140,9 +175,33 @@ export function MeetingListRow({
               className="h-3.5 w-3.5 text-[var(--text-muted)]"
               aria-hidden="true"
             />
-            {totalActions === 0
-              ? 'No action items'
-              : `${totalActions} action item${totalActions === 1 ? '' : 's'} (${doneActions} done)`}
+            {totalActions === 0 ? (
+              'No action items'
+            ) : (
+              <>
+                <span>
+                  {totalActions} action item{totalActions === 1 ? '' : 's'} (
+                  {doneActions} done)
+                </span>
+                {/* Mini progress bar — 16px wide, 4px tall. Green
+                    `--status-done` fill so it reads as completion. */}
+                <span
+                  className="block h-1 w-16 overflow-hidden rounded-full bg-[var(--bg-elevated)]"
+                  role="progressbar"
+                  aria-valuemin={0}
+                  aria-valuemax={totalActions}
+                  aria-valuenow={doneActions}
+                  aria-label={`${doneActions} of ${totalActions} action items done`}
+                >
+                  <span
+                    className="block h-full rounded-full bg-[var(--status-done)] transition-[width] duration-200"
+                    style={{
+                      width: `${(doneActions / totalActions) * 100}%`,
+                    }}
+                  />
+                </span>
+              </>
+            )}
           </span>
           {meeting.decisions.length > 0 && (
             <span className="inline-flex items-center gap-1.5">
@@ -156,19 +215,15 @@ export function MeetingListRow({
           )}
         </div>
       </div>
-      <div className="shrink-0">
-        {attendees.length > 0 ? (
+      {attendees.length > 0 && (
+        <div className="shrink-0">
           <AvatarStack
             names={attendees.map((a) => a.name)}
             max={4}
             size="sm"
           />
-        ) : (
-          <span className="text-[11px] text-[var(--text-muted)]">
-            No attendees
-          </span>
-        )}
-      </div>
+        </div>
+      )}
     </Link>
   )
 }

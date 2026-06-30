@@ -234,6 +234,23 @@
   to   { opacity: 1; transform: scale(1); }
 }
 
+/* Right-edge slide-over panel (Team page member details). Plays once
+   on mount so the panel feels like it pushes in from the right edge
+   of the viewport. */
+@keyframes slideInRight {
+  from { transform: translateX(100%); }
+  to   { transform: translateX(0); }
+}
+
+/* Slow "breath" used on empty-state illustrations — a 3 s in-and-out
+   scale that signals life without distracting. Subtler than the
+   built-in `animate-bounce`, kinder than `animate-pulse`'s opacity
+   blink. */
+@keyframes gentlePulse {
+  0%, 100% { transform: scale(1); }
+  50%      { transform: scale(1.06); }
+}
+
 /* Soft pulse used by the onboarding tour to draw the eye to a target
    element. 2s cycle, accent-color halo. The tour adds .tour-highlight
    to the target while a step is active and removes it on advance. */
