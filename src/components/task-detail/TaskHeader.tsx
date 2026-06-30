@@ -338,7 +338,9 @@ function DueDateField({
 }
 
 function formatCreated(iso: string): string {
-  return new Date(iso).toLocaleDateString(undefined, {
+  const d = new Date(iso)
+  if (Number.isNaN(d.getTime())) return ''
+  return d.toLocaleDateString(undefined, {
     month: 'short',
     day: 'numeric',
   })

@@ -21,6 +21,7 @@ import { useAuth } from '@/data/auth'
 import { useTaskPanel } from '@/data/task-panel'
 import { useData } from '@/data/store'
 import { useFocusTrap } from '@/hooks/useFocusTrap'
+import { formatMeetingDate } from '@/lib/date-utils'
 import { SHORTCUTS, type ShortcutKey } from '@/lib/shortcuts'
 import { cn } from '@/lib/utils'
 import type { Project, Task, TeamMember } from '@/data/types'
@@ -651,7 +652,7 @@ function MeetingRow({
               </>
             )}
             <span aria-hidden="true">·</span>
-            <span className="truncate">{hit.meeting.date}</span>
+            <span className="truncate">{formatMeetingDate(hit.meeting.date)}</span>
           </p>
         </div>
       </button>

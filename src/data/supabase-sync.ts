@@ -130,7 +130,10 @@ export async function bootstrapFromSupabase(
     getLocalTasks(),
     getAllSubtasks(),
     getAllComments(),
-    getRecentActivities(500),
+    // Activities feed only needs the most recent rows — the dashboard
+    // shows ~15 and the rest is paginated. Pulling more on every login
+    // hurts startup for no UI gain.
+    getRecentActivities(50),
     getMeetings(),
     getAllSettings(),
     currentUserId
@@ -647,7 +650,7 @@ function linkRowToDomain(l: MeetingLinkRow): MeetingLink {
   }
 }
 
-function meetingToRows(
+export function meetingToRows(
   m: Meeting,
   actorId: string,
 ): {

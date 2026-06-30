@@ -1,9 +1,16 @@
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { ChevronDown, ChevronRight, Trash2 } from 'lucide-react'
 import { Avatar } from '@/components/shared/Avatar'
 import { TeamTaskListRow, TeamTaskRow } from './TeamTaskCard'
 import { cn } from '@/lib/utils'
-import { now, startOfWeek } from '@/lib/date-utils'
+import {
+  isInThisWeek,
+  isOverdue,
+  now,
+  parseLocalDate,
+  startOfDay,
+  startOfWeek,
+} from '@/lib/date-utils'
 import {
   STATUS_LABELS,
   type Priority,
@@ -13,14 +20,151 @@ import {
   type TeamMember,
 } from '@/data/types'
 
-/** Ranking used to sort the collapsed preview — highest-priority
- *  non-done tasks float to the top so the first three rows surface
- *  what the member should look at first. */
+/** Ranking used everywhere we sort tasks by urgency — lower = more
+ *  urgent. Both the compact preview and the expanded "By priority"
+ *  view read from this. */
 const PRIORITY_RANK: Record<Priority, number> = {
   critical: 0,
   high: 1,
   medium: 2,
   low: 3,
+}
+
+// ── Filters & sort state ────────────────────────────────────────────────────
+
+type DueFilter = 'all' | 'overdue' | 'today' | 'week' | 'month' | 'none'
+type SortMode = 'priority' | 'dueDate' | 'newest'
+
+interface MemberFilters {
+  /** 'all' or a real project id. */
+  projectId: string
+  priority: 'all' | Priority
+  due: DueFilter
+  sort: SortMode
+}
+
+const DEFAULT_FILTERS: MemberFilters = {
+  projectId: 'all',
+  priority: 'all',
+  due: 'all',
+  sort: 'priority',
+}
+
+/** Persist per-member so the PM doesn't lose their narrowing when
+ *  collapsing → re-expanding a card. sessionStorage (not localStorage)
+ *  is the right scope — these filters are working state, not a
+ *  durable preference. */
+function filtersStorageKey(memberId: string): string {
+  return `team_filters_${memberId}`
+}
+
+function loadFilters(memberId: string): MemberFilters {
+  if (typeof window === 'undefined') return DEFAULT_FILTERS
+  try {
+    const raw = window.sessionStorage.getItem(filtersStorageKey(memberId))
+    if (!raw) return DEFAULT_FILTERS
+    return { ...DEFAULT_FILTERS, ...JSON.parse(raw) }
+  } catch {
+    return DEFAULT_FILTERS
+  }
+}
+
+function saveFilters(memberId: string, filters: MemberFilters): void {
+  if (typeof window === 'undefined') return
+  try {
+    window.sessionStorage.setItem(
+      filtersStorageKey(memberId),
+      JSON.stringify(filters),
+    )
+  } catch {
+    // private-mode / quota — silently degrade
+  }
+}
+
+/** True iff `dueDate` is the current calendar day (local time). */
+function isDueToday(dueDate: string | null): boolean {
+  if (!dueDate) return false
+  return (
+    startOfDay(parseLocalDate(dueDate)).getTime() ===
+    startOfDay(now()).getTime()
+  )
+}
+
+/** True iff `dueDate` falls in the same calendar month + year as today. */
+function isInThisMonth(dueDate: string | null): boolean {
+  if (!dueDate) return false
+  const d = parseLocalDate(dueDate)
+  const ref = now()
+  return (
+    d.getFullYear() === ref.getFullYear() && d.getMonth() === ref.getMonth()
+  )
+}
+
+function matchesDueFilter(t: Task, due: DueFilter): boolean {
+  switch (due) {
+    case 'all':
+      return true
+    case 'overdue':
+      return isOverdue(t.dueDate)
+    case 'today':
+      return isDueToday(t.dueDate)
+    case 'week':
+      return isInThisWeek(t.dueDate)
+    case 'month':
+      return isInThisMonth(t.dueDate)
+    case 'none':
+      return t.dueDate === null
+  }
+}
+
+function applyFilters(tasks: Task[], filters: MemberFilters): Task[] {
+  return tasks.filter((t) => {
+    if (filters.projectId !== 'all' && t.projectId !== filters.projectId)
+      return false
+    if (filters.priority !== 'all' && t.priority !== filters.priority)
+      return false
+    if (!matchesDueFilter(t, filters.due)) return false
+    return true
+  })
+}
+
+/** Sort comparator used inside each status group when sort === 'priority'.
+ *  Critical/high first; ties broken by due-soon then by has-date. */
+function compareByPriority(a: Task, b: Task): number {
+  const r = PRIORITY_RANK[a.priority] - PRIORITY_RANK[b.priority]
+  if (r !== 0) return r
+  if (a.dueDate && b.dueDate) return a.dueDate.localeCompare(b.dueDate)
+  if (a.dueDate) return -1
+  if (b.dueDate) return 1
+  return 0
+}
+
+/** Soonest-due first across all statuses. Overdue is grouped with
+ *  earliest dates (they're already past), so a string compare on
+ *  YYYY-MM-DD does the right thing. Tasks without a due date sink
+ *  to the bottom. */
+function compareByDueDate(a: Task, b: Task): number {
+  if (a.dueDate && b.dueDate) return a.dueDate.localeCompare(b.dueDate)
+  if (a.dueDate) return -1
+  if (b.dueDate) return 1
+  // Tie among no-date tasks: fall back to priority so it's at least
+  // deterministic.
+  return PRIORITY_RANK[a.priority] - PRIORITY_RANK[b.priority]
+}
+
+function compareByNewest(a: Task, b: Task): number {
+  return b.createdAt.localeCompare(a.createdAt)
+}
+
+/** Count the filters that aren't on their default value. Used by the
+ *  "(N filter)" indicator next to the bar — `sort` doesn't count
+ *  because it always has a value. */
+function activeFilterCount(f: MemberFilters): number {
+  let n = 0
+  if (f.projectId !== 'all') n += 1
+  if (f.priority !== 'all') n += 1
+  if (f.due !== 'all') n += 1
+  return n
 }
 
 interface TeamMemberCardProps {
@@ -55,7 +199,6 @@ export function TeamMemberCard({
   onRemove,
 }: TeamMemberCardProps) {
   const stats = useMemo(() => computeStats(tasks), [tasks])
-  const grouped = useMemo(() => groupByStatus(tasks), [tasks])
   const velocity = useMemo(() => computeVelocity(tasks), [tasks])
   const isPM = member.role === 'pm'
 
@@ -63,13 +206,19 @@ export function TeamMemberCard({
     () => tasks.filter((t) => ACTIVE_STATUSES.includes(t.status)),
     [tasks],
   )
-  // Highest-priority active tasks first; equal-priority ties fall
-  // back to the earlier due date so a critical task due Today beats
-  // a critical task due next month.
+  // 3-task urgency preview shown when the card is collapsed.
+  // Ranking layers: (1) priority rank (critical/high first), (2)
+  // overdue beats not-overdue within the same priority, (3) earlier
+  // due date wins, (4) has-date beats no-date. Catches the case
+  // where a medium-priority overdue task should surface above a
+  // medium-priority task due next month.
   const previewTasks = useMemo(() => {
     const sorted = [...activeTasks].sort((a, b) => {
-      const rank = PRIORITY_RANK[a.priority] - PRIORITY_RANK[b.priority]
-      if (rank !== 0) return rank
+      const r = PRIORITY_RANK[a.priority] - PRIORITY_RANK[b.priority]
+      if (r !== 0) return r
+      const oa = isOverdue(a.dueDate) ? 0 : 1
+      const ob = isOverdue(b.dueDate) ? 0 : 1
+      if (oa !== ob) return oa - ob
       if (a.dueDate && b.dueDate) return a.dueDate.localeCompare(b.dueDate)
       if (a.dueDate) return -1
       if (b.dueDate) return 1
@@ -84,6 +233,59 @@ export function TeamMemberCard({
   const [collapsed, setCollapsed] = useState<Set<TaskStatus>>(
     () => new Set(DEFAULT_COLLAPSED),
   )
+
+  // Filter + sort state, persisted to sessionStorage. We initialise
+  // from storage on every mount so re-expanding a card restores the
+  // last narrowing the PM was working with.
+  const [filters, setFilters] = useState<MemberFilters>(() =>
+    loadFilters(member.id),
+  )
+  useEffect(() => {
+    saveFilters(member.id, filters)
+  }, [member.id, filters])
+  const setFilter = <K extends keyof MemberFilters>(
+    key: K,
+    value: MemberFilters[K],
+  ) => setFilters((prev) => ({ ...prev, [key]: value }))
+  const clearFilters = () =>
+    setFilters((prev) => ({ ...DEFAULT_FILTERS, sort: prev.sort }))
+
+  // Projects this member actually has tasks in. The filter dropdown
+  // shows ONLY these — surfacing the full workspace project list
+  // would offer empty selections.
+  const memberProjects = useMemo(() => {
+    const ids = new Set<string>()
+    for (const t of tasks) ids.add(t.projectId)
+    const out: Project[] = []
+    for (const id of ids) {
+      const p = projectsById.get(id)
+      if (p) out.push(p)
+    }
+    out.sort((a, b) => a.name.localeCompare(b.name))
+    return out
+  }, [tasks, projectsById])
+
+  // Apply the three AND-combined filters once; downstream views
+  // (grouped + flat) both consume the same filtered set.
+  const filteredTasks = useMemo(
+    () => applyFilters(tasks, filters),
+    [tasks, filters],
+  )
+  const filteredGrouped = useMemo(
+    () => groupByStatus(filteredTasks),
+    [filteredTasks],
+  )
+  const filteredFlat = useMemo(() => {
+    const cmp =
+      filters.sort === 'dueDate'
+        ? compareByDueDate
+        : filters.sort === 'newest'
+          ? compareByNewest
+          : compareByPriority
+    return [...filteredTasks].sort(cmp)
+  }, [filteredTasks, filters.sort])
+  const filterCount = activeFilterCount(filters)
+  const anyFilterActive = filterCount > 0
   const toggleGroup = (status: TaskStatus) => {
     setCollapsed((prev) => {
       const next = new Set(prev)
@@ -200,50 +402,93 @@ export function TeamMemberCard({
         <div className="border-t border-[var(--border-subtle)] px-4 py-4 md:px-5 md:py-5">
           <WorkloadBar tasks={tasks} />
 
-          <div className="mt-5 space-y-4">
-            {GROUPED_STATUSES.map((status) => {
-              const list = grouped[status]
-              if (list.length === 0) return null
-              const isCollapsed = collapsed.has(status)
-              return (
-                <section key={status}>
+          <FilterBar
+            filters={filters}
+            onChange={setFilter}
+            projects={memberProjects}
+            filterCount={filterCount}
+          />
+
+          {anyFilterActive && (
+            <p className="mt-2 px-2 text-[11px] text-[var(--text-secondary)] tabular-nums">
+              Showing {filteredTasks.length} of {tasks.length} tasks
+            </p>
+          )}
+
+          <div className="mt-4 space-y-4">
+            {filteredTasks.length === 0 ? (
+              tasks.length === 0 ? (
+                <p className="text-sm text-[var(--text-muted)]">
+                  No tasks assigned to {member.name.split(' ')[0]}.
+                </p>
+              ) : (
+                <div className="rounded-md border border-dashed border-[var(--border-subtle)] bg-[var(--bg-surface)]/40 px-4 py-6 text-center">
+                  <p className="text-sm text-[var(--text-secondary)]">
+                    No tasks match your filters.
+                  </p>
                   <button
                     type="button"
-                    onClick={() => toggleGroup(status)}
-                    aria-expanded={!isCollapsed}
-                    // px-2 matches the row's px-2 so the chevron lines
-                    // up with the checkbox column below. The button
-                    // is still inline-flex so the click target hugs
-                    // the label rather than spanning the full width.
-                    className="mb-2 inline-flex items-center gap-1.5 rounded px-2 text-[11px] font-semibold uppercase tracking-[0.5px] text-[var(--text-secondary)] hover:text-[var(--text-primary)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent-focus)]"
+                    onClick={clearFilters}
+                    className="mt-2 inline-flex items-center text-xs text-[var(--accent-primary)] hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent-focus)] focus-visible:rounded"
                   >
-                    {isCollapsed ? (
-                      <ChevronRight className="h-3 w-3" aria-hidden="true" />
-                    ) : (
-                      <ChevronDown className="h-3 w-3" aria-hidden="true" />
-                    )}
-                    {STATUS_LABELS[status]} ({list.length})
+                    Clear filters
                   </button>
-                  {!isCollapsed && (
-                    <ul className="flex flex-col gap-1">
-                      {list.map((t, i) => (
-                        <li key={t.id}>
-                          <TeamTaskListRow
-                            task={t}
-                            project={projectsById.get(t.projectId)}
-                            index={i}
-                          />
-                        </li>
-                      ))}
-                    </ul>
-                  )}
-                </section>
+                </div>
               )
-            })}
-            {tasks.length === 0 && (
-              <p className="text-sm text-[var(--text-muted)]">
-                No tasks assigned to {member.name.split(' ')[0]}.
-              </p>
+            ) : filters.sort === 'priority' ? (
+              GROUPED_STATUSES.map((status) => {
+                const list = filteredGrouped[status]
+                if (list.length === 0) return null
+                const isCollapsed = collapsed.has(status)
+                const sortedList = [...list].sort(compareByPriority)
+                return (
+                  <section key={status}>
+                    <button
+                      type="button"
+                      onClick={() => toggleGroup(status)}
+                      aria-expanded={!isCollapsed}
+                      // px-2 matches the row's px-2 so the chevron lines
+                      // up with the checkbox column below.
+                      className="mb-2 inline-flex items-center gap-1.5 rounded px-2 text-[11px] font-semibold uppercase tracking-[0.5px] text-[var(--text-secondary)] hover:text-[var(--text-primary)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent-focus)]"
+                    >
+                      {isCollapsed ? (
+                        <ChevronRight className="h-3 w-3" aria-hidden="true" />
+                      ) : (
+                        <ChevronDown className="h-3 w-3" aria-hidden="true" />
+                      )}
+                      {STATUS_LABELS[status]} ({sortedList.length})
+                    </button>
+                    {!isCollapsed && (
+                      <ul className="flex flex-col gap-1">
+                        {sortedList.map((t, i) => (
+                          <li key={t.id}>
+                            <TeamTaskListRow
+                              task={t}
+                              project={projectsById.get(t.projectId)}
+                              index={i}
+                            />
+                          </li>
+                        ))}
+                      </ul>
+                    )}
+                  </section>
+                )
+              })
+            ) : (
+              // Flat sort — no status grouping. The status dot on each
+              // row still communicates the column, and the explicit
+              // sort the user picked drives ordering.
+              <ul className="flex flex-col gap-1">
+                {filteredFlat.map((t, i) => (
+                  <li key={t.id}>
+                    <TeamTaskListRow
+                      task={t}
+                      project={projectsById.get(t.projectId)}
+                      index={i}
+                    />
+                  </li>
+                ))}
+              </ul>
             )}
           </div>
 
@@ -395,6 +640,142 @@ function computeVelocity(tasks: Task[]): WeekBucket[] {
   }
   return buckets
 }
+
+// ── FilterBar ───────────────────────────────────────────────────────────────
+
+interface FilterBarProps {
+  filters: MemberFilters
+  /** Granular setter — narrows the type on the value to avoid `any`. */
+  onChange: <K extends keyof MemberFilters>(
+    key: K,
+    value: MemberFilters[K],
+  ) => void
+  /** Projects this member has tasks in — the dropdown only lists these.
+   *  Empty array = "All Projects" is the sole option. */
+  projects: Project[]
+  /** Count of non-default filter values, surfaced as "(N filter)". */
+  filterCount: number
+}
+
+const PRIORITY_OPTIONS: Array<{ value: 'all' | Priority; label: string }> = [
+  { value: 'all', label: 'All Priorities' },
+  { value: 'critical', label: 'Critical' },
+  { value: 'high', label: 'High' },
+  { value: 'medium', label: 'Medium' },
+  { value: 'low', label: 'Low' },
+]
+
+const DUE_OPTIONS: Array<{ value: DueFilter; label: string }> = [
+  { value: 'all', label: 'All Dates' },
+  { value: 'overdue', label: 'Overdue' },
+  { value: 'today', label: 'Due Today' },
+  { value: 'week', label: 'Due This Week' },
+  { value: 'month', label: 'Due This Month' },
+  { value: 'none', label: 'No Due Date' },
+]
+
+const SORT_OPTIONS: Array<{ value: SortMode; label: string }> = [
+  { value: 'priority', label: 'Priority' },
+  { value: 'dueDate', label: 'Due Date' },
+  { value: 'newest', label: 'Newest' },
+]
+
+function FilterBar({ filters, onChange, projects, filterCount }: FilterBarProps) {
+  const selectClass =
+    'h-7 rounded-md border border-[var(--border-subtle)] bg-[var(--bg-surface)] px-2 text-xs text-[var(--text-primary)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent-focus)]'
+
+  return (
+    <div className="mt-4 flex flex-wrap items-center gap-2">
+      <span className="text-[11px] uppercase tracking-[0.5px] text-[var(--text-secondary)]">
+        Filter
+      </span>
+
+      <select
+        aria-label="Filter by project"
+        value={filters.projectId}
+        onChange={(e) => onChange('projectId', e.target.value)}
+        className={cn(selectClass, 'min-w-[140px]')}
+      >
+        <option value="all">All Projects</option>
+        {projects.map((p) => (
+          <option key={p.id} value={p.id}>
+            {p.name}
+          </option>
+        ))}
+      </select>
+
+      <select
+        aria-label="Filter by priority"
+        value={filters.priority}
+        onChange={(e) => onChange('priority', e.target.value as 'all' | Priority)}
+        className={cn(selectClass, 'min-w-[130px]')}
+      >
+        {PRIORITY_OPTIONS.map((o) => (
+          <option key={o.value} value={o.value}>
+            {o.label}
+          </option>
+        ))}
+      </select>
+
+      <select
+        aria-label="Filter by due date"
+        value={filters.due}
+        onChange={(e) => onChange('due', e.target.value as DueFilter)}
+        className={cn(selectClass, 'min-w-[130px]')}
+      >
+        {DUE_OPTIONS.map((o) => (
+          <option key={o.value} value={o.value}>
+            {o.label}
+          </option>
+        ))}
+      </select>
+
+      {filterCount > 0 && (
+        <span className="text-[11px] text-[var(--text-muted)] tabular-nums">
+          ({filterCount} filter{filterCount === 1 ? '' : 's'})
+        </span>
+      )}
+
+      <div
+        role="tablist"
+        aria-label="Sort tasks"
+        className="ml-auto flex items-center gap-2 text-xs"
+      >
+        <span className="text-[11px] uppercase tracking-[0.5px] text-[var(--text-secondary)]">
+          Sort
+        </span>
+        {SORT_OPTIONS.map((o, i) => {
+          const active = filters.sort === o.value
+          return (
+            <span key={o.value} className="flex items-center gap-2">
+              {i > 0 && (
+                <span className="text-[var(--text-muted)]" aria-hidden="true">
+                  ·
+                </span>
+              )}
+              <button
+                type="button"
+                role="tab"
+                aria-selected={active}
+                onClick={() => onChange('sort', o.value)}
+                className={cn(
+                  'rounded text-xs focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent-focus)]',
+                  active
+                    ? 'text-[var(--text-primary)] underline underline-offset-2'
+                    : 'text-[var(--text-muted)] hover:text-[var(--text-secondary)]',
+                )}
+              >
+                {o.label}
+              </button>
+            </span>
+          )
+        })}
+      </div>
+    </div>
+  )
+}
+
+// ── Velocity chart ──────────────────────────────────────────────────────────
 
 function VelocityChart({ weeks }: { weeks: WeekBucket[] }) {
   const hasAny = weeks.some((w) => w.count > 0)

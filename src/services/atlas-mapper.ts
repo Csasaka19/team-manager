@@ -265,7 +265,11 @@ export function mapAtlasTaskToTask(
     assigneeId: primaryAssignee,
     priority: mapPriority(atlas.priority),
     status: mapTaskStatus(atlas),
-    dueDate: atlas.deadline ?? null,
+    // Route through the same sentinel-rejecting normaliser the
+    // manifest action-item path uses — Atlas sometimes ships "due",
+    // "unknown", etc. as a real `deadline` value on task rows and we
+    // want them collapsed to null before they reach the UI.
+    dueDate: normalizeManifestDeadline(atlas.deadline),
     tags: Array.isArray(atlas.tags) ? atlas.tags : [],
     subtasks: mapSubtasks(atlas),
     createdAt: dateFromAtlasTask(atlas) ?? now,
@@ -754,16 +758,25 @@ function collectAttendees(manifest: AtlasManifest): Set<string> {
 }
 
 /** Treat the literal strings Atlas uses for "no deadline known"
- *  ("unknown", "tbd", "n/a", empty, ...) as null so the UI doesn't
- *  render them as a real due date. We do NOT validate the date format
- *  here — downstream renderers already cope with arbitrary date-ish
- *  strings; we just refuse the sentinel non-dates. */
+ *  ("unknown", "tbd", "n/a", "due", empty, ...) as null so the UI
+ *  doesn't render them as a real due date. We do NOT validate the
+ *  date format here — downstream renderers already cope with
+ *  arbitrary date-ish strings; we just refuse the sentinel
+ *  non-dates. "due" landed in this list after we saw it leak from
+ *  Atlas as a column-header artefact into actual task rows. */
 function normalizeManifestDeadline(value: unknown): string | null {
   if (typeof value !== 'string') return null
   const trimmed = value.trim()
   if (!trimmed) return null
   const lc = trimmed.toLowerCase()
-  if (lc === 'unknown' || lc === 'tbd' || lc === 'n/a' || lc === 'none' || lc === 'null') {
+  if (
+    lc === 'unknown' ||
+    lc === 'tbd' ||
+    lc === 'n/a' ||
+    lc === 'none' ||
+    lc === 'null' ||
+    lc === 'due'
+  ) {
     return null
   }
   return trimmed

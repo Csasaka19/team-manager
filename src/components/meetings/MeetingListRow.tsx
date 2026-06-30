@@ -1,7 +1,7 @@
 import { Link } from 'react-router-dom'
 import { CheckCircle2, ListChecks, MessageSquare } from 'lucide-react'
 import { AvatarStack } from '@/components/shared/AvatarStack'
-import { daysBetween, now } from '@/lib/date-utils'
+import { daysBetween, formatMeetingDate, now, parseLocalDate } from '@/lib/date-utils'
 import { cn } from '@/lib/utils'
 import type { Meeting, TeamMember } from '@/data/types'
 
@@ -9,7 +9,10 @@ import type { Meeting, TeamMember } from '@/data/types'
  *  fine. Today / Yesterday for the recent two days; weekday name for the
  *  rest of the current week (in either direction); full date otherwise. */
 function meetingDateLabel(isoDate: string): string {
-  const d = new Date(isoDate)
+  // parseLocalDate keeps YYYY-MM-DD strings on the user's calendar day —
+  // `new Date(isoDate)` would UTC-midnight them and shift back a day
+  // in negative-offset timezones.
+  const d = parseLocalDate(isoDate)
   const diff = daysBetween(d, now())
   if (diff === 0) return 'Today'
   if (diff === 1) return 'Yesterday'
@@ -17,11 +20,7 @@ function meetingDateLabel(isoDate: string): string {
   if (Math.abs(diff) < 7) {
     return d.toLocaleDateString(undefined, { weekday: 'long' })
   }
-  return d.toLocaleDateString(undefined, {
-    month: 'short',
-    day: 'numeric',
-    year: 'numeric',
-  })
+  return formatMeetingDate(isoDate)
 }
 
 interface MeetingListRowProps {

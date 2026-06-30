@@ -797,6 +797,22 @@ export function parseSheetDate(raw: string): string | null {
   const value = raw?.trim()
   if (!value) return null
 
+  // Reject sentinel non-dates outright. Sheets sometimes carries the
+  // column header ("Due", "Due Date") down into a data row when the
+  // template is reused; we'd rather collapse those to null than try
+  // to parse them.
+  const lc = value.toLowerCase()
+  if (
+    lc === 'due' ||
+    lc === 'unknown' ||
+    lc === 'tbd' ||
+    lc === 'n/a' ||
+    lc === 'none' ||
+    lc === 'null'
+  ) {
+    return null
+  }
+
   // ISO: 2026-06-15 (or with time)
   if (/^\d{4}-\d{1,2}-\d{1,2}/.test(value)) {
     const d = new Date(value)

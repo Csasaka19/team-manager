@@ -1,11 +1,13 @@
 import { Link } from 'react-router-dom'
 import { FileText } from 'lucide-react'
-import { daysBetween, now } from '@/lib/date-utils'
+import { daysBetween, formatMeetingDate, now, parseLocalDate } from '@/lib/date-utils'
 import { cn } from '@/lib/utils'
 import type { Meeting, Project } from '@/data/types'
 
 function meetingDateLabel(isoDate: string): string {
-  const d = new Date(isoDate)
+  // parseLocalDate avoids the UTC-midnight shift that would push a
+  // "2026-06-30" string back a day in negative-offset timezones.
+  const d = parseLocalDate(isoDate)
   const diff = daysBetween(d, now())
   if (diff === 0) return 'Today'
   if (diff === 1) return 'Yesterday'
@@ -13,11 +15,7 @@ function meetingDateLabel(isoDate: string): string {
   if (Math.abs(diff) < 7) {
     return d.toLocaleDateString(undefined, { weekday: 'long' })
   }
-  return d.toLocaleDateString(undefined, {
-    month: 'short',
-    day: 'numeric',
-    year: 'numeric',
-  })
+  return formatMeetingDate(isoDate)
 }
 
 interface RecentMeetingsProps {

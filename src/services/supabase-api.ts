@@ -197,6 +197,19 @@ export interface SettingRow {
   updated_at?: string
 }
 
+export interface DedupLogRow {
+  id?: string
+  primary_task_id: string
+  duplicate_task_id: string
+  similarity: number
+  primary_source: string | null
+  duplicate_source: string | null
+  /** 'merged' | 'kept_separate' | 'manual_review' | 'linked' */
+  action?: string | null
+  reviewed_by?: string | null
+  created_at?: string
+}
+
 export interface NotificationPreferencesRow {
   id?: string
   user_id: string
@@ -549,10 +562,22 @@ export async function createActivity(activity: ActivityRow): Promise<void> {
   }
 }
 
+export async function deleteActivity(id: string): Promise<void> {
+  const c = client()
+  if (!c) return
+  try {
+    const { error } = await c.from('activities').delete().eq('id', id)
+    if (error) throw error
+  } catch (err) {
+    logError('deleteActivity', err)
+  }
+}
+
 // ── Meetings ────────────────────────────────────────────────────────────────
 
 export async function getMeetings(
   projectId?: string,
+  limit = 100,
 ): Promise<MeetingWithRelations[]> {
   const c = client()
   if (!c) return []
@@ -563,6 +588,7 @@ export async function getMeetings(
         '*, meeting_decisions(*), meeting_action_items(*), meeting_links(*)',
       )
       .order('date', { ascending: false })
+      .limit(limit)
     if (projectId) query = query.eq('project_id', projectId)
     const { data, error } = await query
     if (error) throw error
@@ -728,6 +754,21 @@ export async function getAllSettings(): Promise<Record<string, unknown>> {
   } catch (err) {
     logError('getAllSettings', err)
     return {}
+  }
+}
+
+// ── Dedup Log ───────────────────────────────────────────────────────────────
+
+export async function recordDedupDecision(
+  row: DedupLogRow,
+): Promise<void> {
+  const c = client()
+  if (!c) return
+  try {
+    const { error } = await c.from('dedup_log').insert(row)
+    if (error) throw error
+  } catch (err) {
+    logError('recordDedupDecision', err)
   }
 }
 

@@ -25,7 +25,7 @@ import { useAuth } from '@/data/auth'
 import { useData } from '@/data/store'
 import { useTaskPanel } from '@/data/task-panel'
 import { useDocumentTitle } from '@/hooks/useDocumentTitle'
-import { formatAbsoluteDateTime, relativeTime } from '@/lib/date-utils'
+import { formatAbsoluteDateTime, formatMeetingDate, relativeTime } from '@/lib/date-utils'
 import { cn } from '@/lib/utils'
 import {
   type ActionItem,
@@ -54,14 +54,23 @@ function newId(prefix: string): string {
 }
 
 /** Reject deadline strings that aren't an actual date — Atlas sometimes
- *  emits the literal word "unknown" / "tbd" / "n/a" for unscheduled
- *  items. The bridge normalises these to null at ingest, but legacy
- *  meetings in localStorage may still carry them; treat them as empty
- *  here so the row shows the neutral "Due" placeholder instead. */
+ *  emits the literal word "unknown" / "tbd" / "n/a" / "due" for
+ *  unscheduled items. The bridge normalises these to null at ingest,
+ *  but legacy meetings in localStorage may still carry them; treat
+ *  them as empty here so the row shows the neutral "Due" placeholder
+ *  instead of the raw sentinel. */
 function displayDueDate(value: string | null): string | null {
   if (!value) return null
   const lc = value.trim().toLowerCase()
-  if (!lc || lc === 'unknown' || lc === 'tbd' || lc === 'n/a' || lc === 'none' || lc === 'null') {
+  if (
+    !lc ||
+    lc === 'unknown' ||
+    lc === 'tbd' ||
+    lc === 'n/a' ||
+    lc === 'none' ||
+    lc === 'null' ||
+    lc === 'due'
+  ) {
     return null
   }
   return value
@@ -411,7 +420,7 @@ function MeetingHeader({
               className="h-3.5 w-3.5 text-[var(--text-secondary)]"
               aria-hidden="true"
             />
-            {meeting.date}
+            {formatMeetingDate(meeting.date)}
             {meeting.startTime && (
               <span className="text-[var(--text-secondary)]">· {meeting.startTime}</span>
             )}
@@ -963,7 +972,10 @@ function QuestionsSection({
   const [draft, setDraft] = useState('')
 
   // Hide the entire section when there's nothing AND the user can't
-  // add anything — keeps the page clean for read-only viewers.
+  // add anything — keeps the page clean for read-only viewers. Even
+  // for editors, when there's nothing extracted we collapse the
+  // section to just the "+ Add" affordance below; the dashed empty
+  // card was noise on every meeting that didn't surface a blocker.
   if (questions.length === 0 && !canEdit) return null
 
   const handleAdd = () => {
@@ -983,20 +995,19 @@ function QuestionsSection({
 
   return (
     <section aria-labelledby="questions-heading" className="space-y-2">
-      <h2
-        id="questions-heading"
-        className="text-lg font-semibold text-[var(--text-primary)]"
-      >
-        Questions &amp; Blockers
-      </h2>
+      {/* Hide the heading too when the section is empty and we're
+          not in the middle of adding — keeps the page clean while
+          still letting editors add via the "+ Add" button below. */}
+      {(questions.length > 0 || adding) && (
+        <h2
+          id="questions-heading"
+          className="text-lg font-semibold text-[var(--text-primary)]"
+        >
+          Questions &amp; Blockers
+        </h2>
+      )}
 
-      {questions.length === 0 ? (
-        adding ? null : (
-          <p className="rounded-md border border-dashed border-[var(--border-subtle)] bg-[var(--bg-surface)]/40 p-3 text-sm italic text-[var(--text-muted)]">
-            No open questions or blockers.
-          </p>
-        )
-      ) : (
+      {questions.length > 0 && (
         <ul className="flex flex-col gap-2">
           {questions.map((q) => (
             <li
@@ -1289,7 +1300,16 @@ function ActionItemRow({
   }, [project, item.id, projectIdFallback])
 
   return (
-    <li className="group/ai flex items-center gap-2 rounded-md border border-[var(--border-subtle)] bg-[var(--bg-surface)] px-2 py-2">
+    <li
+      className={cn(
+        'group/ai grid items-center gap-2 rounded-md border border-[var(--border-subtle)] bg-[var(--bg-surface)] px-2 py-2',
+        // Mobile: checkbox + text only (project/assignee/date stack
+        // under the text or hide). Desktop: fixed-width columns so a
+        // long action item text wraps in its own cell instead of
+        // pushing the project/assignee/date columns around.
+        'grid-cols-[20px_1fr] md:grid-cols-[20px_1fr_140px_120px_110px]',
+      )}
+    >
       <button
         type="button"
         onClick={onToggle}
@@ -1307,7 +1327,7 @@ function ActionItemRow({
         {item.done && <Check className="h-3 w-3" strokeWidth={3} aria-hidden="true" />}
       </button>
 
-      <div className="min-w-0 flex-1">
+      <div className="min-w-0">
         {editing ? (
           <input
             autoFocus
@@ -1326,7 +1346,7 @@ function ActionItemRow({
             className="w-full rounded border border-[var(--border-default)] bg-[var(--bg-input)] px-1.5 py-0.5 text-sm text-[var(--text-primary)] outline-none focus:border-[var(--accent-primary)]"
           />
         ) : (
-          <span
+          <div
             role={canEdit ? 'button' : undefined}
             tabIndex={canEdit ? 0 : -1}
             onClick={() => canEdit && setEditing(true)}
@@ -1337,41 +1357,53 @@ function ActionItemRow({
               }
             }}
             className={cn(
-              'inline-flex items-center gap-1.5 text-sm',
+              'flex items-start gap-1.5 break-words text-sm',
               item.done
                 ? 'text-[var(--text-muted)] line-through'
                 : 'text-[var(--text-primary)]',
               canEdit && !editing && 'cursor-text rounded px-1 -mx-1 hover:bg-[var(--bg-elevated)]',
             )}
           >
-            {item.text}
+            <span className="min-w-0 break-words">{item.text}</span>
             {item.linkedTaskId && taskExists && (
               <Link2
-                className="h-3 w-3 shrink-0 text-[var(--accent-primary)]"
+                className="mt-0.5 h-3 w-3 shrink-0 text-[var(--accent-primary)]"
                 aria-label="Linked to task"
               />
             )}
-          </span>
+          </div>
         )}
       </div>
 
-      <span
-        className="hidden w-[120px] shrink-0 items-center gap-1.5 text-xs text-[var(--text-secondary)] md:inline-flex"
-        title={
-          project
-            ? project.name
-            : `Unresolved project (${projectIdFallback})`
-        }
-      >
+      {project ? (
+        <Link
+          to={`/projects/${project.id}`}
+          onClick={(e) => e.stopPropagation()}
+          className="hidden w-[120px] shrink-0 items-center gap-1.5 text-xs text-[var(--text-secondary)] transition-colors hover:text-[var(--accent-primary)] hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent-focus)] focus-visible:rounded md:inline-flex"
+          title={project.name}
+        >
+          <span
+            aria-hidden="true"
+            className="h-1.5 w-1.5 shrink-0 rounded-full"
+            style={{ backgroundColor: project.color }}
+          />
+          <span className="truncate">{project.name}</span>
+        </Link>
+      ) : (
+        // Unresolved project — render the orphan id as plain text; no
+        // route to link to.
         <span
-          aria-hidden="true"
-          className="h-1.5 w-1.5 shrink-0 rounded-full"
-          style={{ backgroundColor: project?.color ?? 'var(--text-muted)' }}
-        />
-        <span className="truncate">
-          {project ? project.name : projectIdFallback}
+          className="hidden w-[120px] shrink-0 items-center gap-1.5 text-xs text-[var(--text-secondary)] md:inline-flex"
+          title={`Unresolved project (${projectIdFallback})`}
+        >
+          <span
+            aria-hidden="true"
+            className="h-1.5 w-1.5 shrink-0 rounded-full"
+            style={{ backgroundColor: 'var(--text-muted)' }}
+          />
+          <span className="truncate">{projectIdFallback}</span>
         </span>
-      </span>
+      )}
 
       <select
         value={item.assigneeId ?? ''}

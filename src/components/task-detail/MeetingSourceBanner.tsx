@@ -1,6 +1,7 @@
 import { Link } from 'react-router-dom'
 import { Link2 } from 'lucide-react'
 import { useData } from '@/data/store'
+import { formatMeetingDate } from '@/lib/date-utils'
 
 /**
  * Renders above the task description on tasks that were converted from a
@@ -36,7 +37,7 @@ export function MeetingSourceBanner({
         <span className="font-medium text-[var(--text-primary)]">
           {meeting.title}
         </span>{' '}
-        · {meeting.date}
+        · {formatMeetingDate(meeting.date)}
       </span>
     </Link>
   )

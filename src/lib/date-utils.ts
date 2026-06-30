@@ -12,8 +12,45 @@ export function now(): Date {
   return new Date(DEMO_NOW)
 }
 
+/**
+ * Parse a YYYY-MM-DD string as **local** midnight, never UTC. Use this
+ * for any date-only string (meeting dates, due dates) where the value
+ * carries no time or timezone — `new Date("2026-06-30")` follows the
+ * ES spec and is parsed as UTC midnight, which shifts back a calendar
+ * day in negative-offset timezones (PST, etc.).
+ */
+export function parseLocalDate(yyyyMMdd: string): Date {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(yyyyMMdd)) return new Date(yyyyMMdd)
+  const [y, m, d] = yyyyMMdd.split('-').map(Number)
+  return new Date(y ?? 1970, (m ?? 1) - 1, d ?? 1)
+}
+
 function asDate(input: Date | string): Date {
-  return typeof input === 'string' ? new Date(input) : new Date(input)
+  if (input instanceof Date) return new Date(input)
+  // Route date-only strings through parseLocalDate so the timezone
+  // shift never happens. Anything with a time/zone marker goes
+  // through new Date() unchanged.
+  if (/^\d{4}-\d{2}-\d{2}$/.test(input)) return parseLocalDate(input)
+  return new Date(input)
+}
+
+/**
+ * Format a YYYY-MM-DD meeting date as "Jun 30, 2026" using local-date
+ * parsing — never let `new Date(str)` UTC-shift it.
+ *
+ * Use this everywhere a meeting date is displayed (cards, detail
+ * headers, breadcrumbs, source banners). The raw string is fine to
+ * pass through `asDate` now too, but a dedicated formatter makes the
+ * intent obvious at the call site and avoids needing to remember the
+ * Intl options every time.
+ */
+export function formatMeetingDate(yyyyMMdd: string): string {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(yyyyMMdd)) return yyyyMMdd
+  return asDate(yyyyMMdd).toLocaleDateString(undefined, {
+    month: 'short',
+    day: 'numeric',
+    year: 'numeric',
+  })
 }
 
 /** Monday 00:00:00 of the ISO week containing `d`. */
@@ -200,6 +237,7 @@ export const DUE_DATE_PRESETS: DueDatePreset[] = [
 /** "May 28, 2026 at 2:34 PM" — used by the per-item timestamp toggle in feeds. */
 export function formatAbsoluteDateTime(iso: string): string {
   const d = asDate(iso)
+  if (Number.isNaN(d.getTime())) return ''
   const date = d.toLocaleDateString(undefined, {
     month: 'short',
     day: 'numeric',
@@ -214,7 +252,9 @@ export function formatAbsoluteDateTime(iso: string): string {
 
 /** "just now" / "12m ago" / "3h ago" / "yesterday" / "3d ago" / "May 8". */
 export function relativeTime(iso: string): string {
-  const then = asDate(iso).getTime()
+  const d = asDate(iso)
+  if (Number.isNaN(d.getTime())) return ''
+  const then = d.getTime()
   const ref = now().getTime()
   const diffMs = ref - then
 
@@ -229,7 +269,7 @@ export function relativeTime(iso: string): string {
   if (diffDays === 1) return 'yesterday'
   if (diffDays < 7) return `${diffDays}d ago`
 
-  return asDate(iso).toLocaleDateString(undefined, {
+  return d.toLocaleDateString(undefined, {
     month: 'short',
     day: 'numeric',
   })

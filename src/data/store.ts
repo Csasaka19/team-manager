@@ -46,9 +46,18 @@ import {
 import {
   applyBootstrapToOverlay,
   bootstrapFromSupabase,
+  meetingToRows,
   syncOverlayDiff,
 } from './supabase-sync'
 import { isSupabaseConfigured } from '@/services/supabase'
+import {
+  deleteActivity as deleteActivityApi,
+  deleteComment as deleteCommentApi,
+  recordDedupDecision,
+  setSetting,
+  upsertMeeting,
+} from '@/services/supabase-api'
+import { findBestMatch } from '@/services/deduplication'
 import {
   combineSourceSnapshots,
   loadFromSheets,
@@ -195,6 +204,10 @@ const COLUMN_ORDER_KEY = 'team-manager.column-order'
 const NOTIF_PREFS_PREFIX = 'team-manager.notif-prefs.'
 const DISCORD_SETTINGS_KEY = 'team-manager.discord-settings'
 const TASK_TEMPLATES_KEY = 'team-manager.task-templates'
+/** Cached team-members list from the last Atlas load. Seeds the login
+ *  dropdown on subsequent visits so the user sees their name
+ *  immediately instead of a "Loading team from Atlas…" spinner. */
+const TEAM_MEMBERS_CACHE_KEY = 'team-manager.cached-team-members'
 
 const DEFAULT_WORKSPACE_NAME = 'Team Manager'
 const DEFAULT_COLUMN_ORDER: TaskStatus[] = ['todo', 'in_progress', 'in_review', 'done']
@@ -617,7 +630,16 @@ const DataContext = createContext<DataStore | null>(null)
 export function DataProvider({ children }: { children: ReactNode }) {
   const { currentUser, logout } = useAuth()
   const navigate = useNavigate()
-  const [teamMembers, setTeamMembers] = useState<TeamMember[]>(mockTeamMembers)
+  const [teamMembers, setTeamMembers] = useState<TeamMember[]>(() => {
+    // Seed from the previous Atlas load's cached list when configured —
+    // means the login dropdown is populated on the first paint of a
+    // repeat visit instead of after the ~5s Atlas round-trip.
+    if (isAtlasConfigured()) {
+      const cached = loadJSON<TeamMember[] | null>(TEAM_MEMBERS_CACHE_KEY, null)
+      if (cached && cached.length > 0) return cached
+    }
+    return mockTeamMembers
+  })
   const [tags, setTags] = useState<Tag[]>(mockTags)
   const [projects, setProjects] = useState<Project[]>(mockProjects)
   const [tasks, setTasks] = useState<Task[]>(mockTasks)
@@ -632,7 +654,13 @@ export function DataProvider({ children }: { children: ReactNode }) {
   // local either way but, in 'atlas' mode, are diffed against the last raw
   // API snapshot and persisted to the localStorage overlay so they survive
   // the 60s refresh.
-  const [dataSource, setDataSource] = useState<'mock' | 'atlas' | 'google-sheets'>('mock')
+  const [dataSource, setDataSource] = useState<'mock' | 'atlas' | 'google-sheets'>(
+    // Pre-seed to 'atlas' when configured so LoginPage renders the
+    // passwordless Atlas variant on the first paint instead of flashing
+    // the mock form. `runAtlasLoad` confirms or corrects this once the
+    // load actually starts.
+    () => (isAtlasConfigured() ? 'atlas' : 'mock'),
+  )
   const [lastSynced, setLastSynced] = useState<Date | null>(null)
   const [syncError, setSyncError] = useState<string | null>(null)
   const [isRefreshing, setIsRefreshing] = useState<boolean>(false)
@@ -744,9 +772,20 @@ export function DataProvider({ children }: { children: ReactNode }) {
     [statusLabelOverrides],
   )
 
+  // app_settings keys — one row per setting, JSONB value. The local
+  // store stays canonical (localStorage seeds the lazy initializers
+  // above) and Supabase is the shared-team mirror — every setter
+  // writes both. Reads aren't currently wired to prefer Supabase; the
+  // bootstrap `settings` map is fetched but not folded into state yet.
+  const mirrorSetting = (key: string, value: unknown) => {
+    if (!isSupabaseConfigured()) return
+    void setSetting(key, value)
+  }
+
   const setWorkspaceName = useCallback<DataStore['setWorkspaceName']>((name) => {
     setWorkspaceNameState(name)
     saveJSON(WORKSPACE_NAME_KEY, name)
+    mirrorSetting('workspace_name', name)
   }, [])
 
   const setStatusLabel = useCallback<DataStore['setStatusLabel']>(
@@ -754,6 +793,7 @@ export function DataProvider({ children }: { children: ReactNode }) {
       setStatusLabelOverrides((prev) => {
         const next = { ...prev, [status]: label }
         saveJSON(STATUS_LABEL_OVERRIDES_KEY, next)
+        mirrorSetting('status_label_overrides', next)
         return next
       })
     },
@@ -763,6 +803,7 @@ export function DataProvider({ children }: { children: ReactNode }) {
   const setColumnOrder = useCallback<DataStore['setColumnOrder']>((order) => {
     setColumnOrderState(order)
     saveJSON(COLUMN_ORDER_KEY, order)
+    mirrorSetting('column_order', order)
   }, [])
 
   // Discord settings — persisted to localStorage. The webhook URL is sensitive
@@ -782,6 +823,7 @@ export function DataProvider({ children }: { children: ReactNode }) {
     (next) => {
       setDiscordSettingsState(next)
       saveJSON(DISCORD_SETTINGS_KEY, next)
+      mirrorSetting('discord_settings', next)
     },
     [],
   )
@@ -796,6 +838,8 @@ export function DataProvider({ children }: { children: ReactNode }) {
   const persistTemplates = useCallback((next: TaskTemplate[]) => {
     setTemplatesState(next)
     saveJSON(TASK_TEMPLATES_KEY, next)
+    mirrorSetting('task_templates', next)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
   const createTemplate = useCallback<DataStore['createTemplate']>(
@@ -956,6 +1000,20 @@ export function DataProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     atlasMeetingsRef.current = meetings
   }, [meetings])
+  const currentUserRef = useRef(currentUser)
+  useEffect(() => {
+    currentUserRef.current = currentUser
+  }, [currentUser])
+
+  // Persist the team-members list whenever a live source updates it.
+  // The next app start reads this from the lazy initializer above so
+  // the login dropdown appears immediately. Skip in mock mode to
+  // avoid polluting the cache with seed fixtures.
+  useEffect(() => {
+    if (dataSource === 'mock') return
+    if (teamMembers.length === 0) return
+    saveJSON(TEAM_MEMBERS_CACHE_KEY, teamMembers)
+  }, [teamMembers, dataSource])
 
   // ── Hybrid loader (Atlas + Google Sheets) ─────────────────────────────
   // The store keeps the two raw snapshots in refs and recombines them
@@ -1141,13 +1199,29 @@ export function DataProvider({ children }: { children: ReactNode }) {
   // Initial Atlas load + react to Settings → Atlas API saves (which fire
   // ATLAS_CONFIG_CHANGED_EVENT). In mock mode this is a no-op apart from
   // setting dataSource correctly.
+  //
+  // Two-phase boot: fast pass (projects + tasks + feed) lights up the
+  // UI in ~1s, then a background meetings pass merges in the 30-day
+  // manifest window without blocking. The login dropdown only needs
+  // the team-members slice, which `extractTeamMembers` derives from
+  // tasks alone — meetings just add stragglers who attended but never
+  // received a task.
   useEffect(() => {
-    void runAtlasLoad('initial')
+    void (async () => {
+      await runAtlasLoad('initial', { includeMeetings: false })
+      // Fire-and-forget the meetings pass — `refreshMeetings` no-ops
+      // if Atlas isn't configured, so safe to call unconditionally.
+      void refreshMeetings()
+    })()
     const handler = () => {
-      void runAtlasLoad('initial')
+      void (async () => {
+        await runAtlasLoad('initial', { includeMeetings: false })
+        void refreshMeetings()
+      })()
     }
     window.addEventListener(ATLAS_CONFIG_CHANGED_EVENT, handler)
     return () => window.removeEventListener(ATLAS_CONFIG_CHANGED_EVENT, handler)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [runAtlasLoad])
 
   // 60-second auto-refresh. Only runs in Atlas mode; tears down when
@@ -1266,6 +1340,31 @@ export function DataProvider({ children }: { children: ReactNode }) {
           overlay.meetingTombstones,
         ),
       )
+
+      // Persist new / changed Atlas meetings to Supabase. Atlas meetings
+      // never go through the overlay choke-point (they're snapshot
+      // entries, not user edits), so without this they'd be recomputed
+      // from Atlas on every boot. Fire-and-forget; `upsertMeeting`
+      // swallows errors. The unique constraint on `source_manifest_id`
+      // keeps repeat upserts idempotent.
+      if (isSupabaseConfigured()) {
+        const prevById = new Map(snap.meetings.map((m) => [m.id, m]))
+        const changedOrNew = fresh.filter((m) => prevById.get(m.id) !== m)
+        if (changedOrNew.length > 0) {
+          const actor = currentUserRef.current?.id ?? 'system'
+          for (const meeting of changedOrNew) {
+            const { row, decisions, actionItems, links } = meetingToRows(
+              meeting,
+              actor,
+            )
+            void upsertMeeting(row, {
+              decisions,
+              action_items: actionItems,
+              links,
+            })
+          }
+        }
+      }
     },
     [],
   )
@@ -2243,6 +2342,17 @@ export function DataProvider({ children }: { children: ReactNode }) {
           if (a.parentCommentId === commentId) removeIds.add(a.id)
         }
         setActivities((prev) => prev.filter((a) => !removeIds.has(a.id)))
+        // Direct Supabase delete — the overlay choke-point only handles
+        // updates/creates (mergeDiffIntoOverlay preserves removed
+        // overrides), so deleting a locally-created comment never makes
+        // it through the diff. Fire-and-forget; the helpers swallow
+        // errors and log to the console.
+        if (isSupabaseConfigured()) {
+          for (const id of removeIds) {
+            void deleteCommentApi(id)
+            void deleteActivityApi(id)
+          }
+        }
       }),
     [],
   )
@@ -2474,6 +2584,54 @@ export function DataProvider({ children }: { children: ReactNode }) {
         // Already linked — return the existing task.
         const existing = tasksRef.current.find((t) => t.id === item.linkedTaskId)
         if (existing) return existing
+      }
+
+      // Dedup pass: before spawning a new task, see if a similar one
+      // already exists in this project. Catches the common loop where
+      // a recurring topic gets re-extracted from each new meeting's
+      // manifest. Threshold 0.7 — a little stricter than the global
+      // detector because we'd rather risk a duplicate than wrongly
+      // collapse two distinct items at a user-visible decision point.
+      const match = findBestMatch(
+        item.text,
+        meeting.projectId,
+        tasksRef.current,
+        0.7,
+      )
+      if (match) {
+        // Link the action item to the existing task instead of
+        // spawning a duplicate. Fire the dedup log for PM review.
+        setMeetings((prev) =>
+          prev.map((m) =>
+            m.id === meetingId
+              ? {
+                  ...m,
+                  actionItems: m.actionItems.map((a) =>
+                    a.id === actionItemId
+                      ? { ...a, linkedTaskId: match.task.id }
+                      : a,
+                  ),
+                  updatedAt: new Date().toISOString(),
+                }
+              : m,
+          ),
+        )
+        toast.info(
+          `Similar task already exists: "${match.task.title}". Linked instead of creating a duplicate.`,
+          { duration: 6_000 },
+        )
+        if (isSupabaseConfigured()) {
+          void recordDedupDecision({
+            primary_task_id: match.task.id,
+            duplicate_task_id: actionItemId,
+            similarity: match.similarity,
+            primary_source: 'task',
+            duplicate_source: 'meeting-action-item',
+            action: 'linked',
+            reviewed_by: currentUserRef.current?.id ?? null,
+          })
+        }
+        return match.task
       }
 
       // createTask runs withMutation, so the artificial 800ms delay fires

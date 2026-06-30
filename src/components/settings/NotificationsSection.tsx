@@ -6,6 +6,11 @@ import {
   playNotificationSound,
   setNotifSoundEnabled,
 } from '@/lib/notification-sound'
+import { isSupabaseConfigured } from '@/services/supabase'
+import {
+  updateNotificationPreferences,
+  type NotificationPreferencesRow,
+} from '@/services/supabase-api'
 import { cn } from '@/lib/utils'
 
 type PrefKey =
@@ -61,6 +66,25 @@ function savePrefs(userId: string, prefs: Record<PrefKey, boolean>) {
   } catch {
     // ignore (private mode, quota, etc.)
   }
+  // Mirror to Supabase so the same user gets the same prefs on another
+  // device. Fire-and-forget — localStorage stays the source of truth
+  // for the local read path, Supabase is the shared-team copy.
+  if (isSupabaseConfigured()) {
+    const row: Partial<NotificationPreferencesRow> = {
+      task_assigned: prefs.assigned,
+      comment_on_task: prefs.comment,
+      mentioned: prefs.mention,
+      status_changed: prefs.status_change,
+      due_tomorrow: prefs.due_tomorrow,
+      overdue: prefs.overdue,
+    }
+    void updateNotificationPreferences(userId, row)
+  }
+}
+
+function savePlaySound(userId: string, enabled: boolean) {
+  if (!isSupabaseConfigured()) return
+  void updateNotificationPreferences(userId, { play_sound: enabled })
 }
 
 export function NotificationsSection() {
@@ -88,6 +112,7 @@ export function NotificationsSection() {
     const next = !soundOn
     setSoundOn(next)
     setNotifSoundEnabled(currentUser.id, next)
+    savePlaySound(currentUser.id, next)
     // Audio is gated to a user gesture in most browsers. Enabling the toggle
     // counts as a gesture, so we use this moment to play a confirming chime
     // — also doubles as the "did the sound work?" preview.
